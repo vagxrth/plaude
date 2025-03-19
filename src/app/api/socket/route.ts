@@ -22,7 +22,7 @@ export const preferredRegion = 'auto';
 // Create a singleton instance of Socket.IO server
 let io: SocketIOServer | null = null;
 let httpServer: ReturnType<typeof createServer> | null = null;
-let serverPort = 3000;
+let serverPort = 3001;
 let serverInitialized = false;
 let serverInitializing = false;
 
@@ -290,15 +290,10 @@ async function getSocketIO(): Promise<SocketIOServer> {
   }
 }
 
-// Export the server port to be used by the client
-export function getServerPort(): number {
-  return serverPort;
-}
-
 export async function GET() {
   try {
     // Initialize Socket.IO if not already initialized
-    const socketIo = await getSocketIO();
+    await getSocketIO();
     
     return new NextResponse(JSON.stringify({ port: serverPort, initialized: serverInitialized }), { 
       status: 200,

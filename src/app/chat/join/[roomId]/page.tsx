@@ -56,10 +56,10 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
         console.log('[Client] Socket connected and stored:', newSocket.id);
         
         // Listen for socket connection errors
-        const handleError = (error: any) => {
+        const handleError = (error: Error | { message: string }) => {
           console.error('[Client] Socket error:', error);
           if (isMounted) {
-            setJoinError(error.message || 'Connection error');
+            setJoinError(typeof error === 'object' && 'message' in error ? error.message : 'Connection error');
             setIsJoining(false);
           }
         };
@@ -92,7 +92,7 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
       isMounted = false;
       // Don't disconnect the socket here, as it might be a shared instance
     };
-  }, []);
+  }, [isJoined]);
   
   // Set up socket event listeners for chat functions
   useEffect(() => {
@@ -231,11 +231,18 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
       // Listen for join success or error
       currentSocket.once('join-success', () => {
         clearTimeout(timeoutId);
-        // Main handler in the useEffect will handle the actual state updates
+        // Don't rely solely on the useEffect handler - update state here as well
+        setIsJoined(true);
+        setIsJoining(false);
+        setJoinError(null);
+        // Main handler in the useEffect will handle the other state updates
       });
       
-      currentSocket.once('server-error', () => {
+      currentSocket.once('server-error', (error: { message: string }) => {
         clearTimeout(timeoutId);
+        console.error('[Client] Server error during join:', error);
+        setIsJoining(false);
+        setJoinError(error.message || 'Server error');
         // Main handler in the useEffect will handle the actual state updates
       });
       

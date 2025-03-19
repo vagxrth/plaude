@@ -2,7 +2,6 @@ import { io, Socket } from 'socket.io-client';
 
 // Singleton pattern for socket connection
 let socket: Socket | null = null;
-let socketServerPort: number | null = null;
 let connectPromise: Promise<Socket> | null = null;
 
 export const initializeSocket = async (): Promise<Socket> => {
@@ -50,7 +49,6 @@ export const initializeSocket = async (): Promise<Socket> => {
           // Get the server port and initialization status from the response
           const data = await response.json();
           serverPort = data.port;
-          socketServerPort = serverPort;
           serverInitialized = data.initialized === true;
           
           console.log(`[Client] Socket server running on port: ${serverPort}, initialized: ${serverInitialized}`);
@@ -67,12 +65,13 @@ export const initializeSocket = async (): Promise<Socket> => {
         }
       }
       
+      // Always use port 3001 since that's what the server is using when Next.js is running
       if (!serverInitialized || !serverPort) {
-        console.warn('[Client] Server initialization timeout or no port returned, using default port');
-        serverPort = 3001; // Changed to 3001 since that's what the server appears to be using
+        console.warn('[Client] Server initialization timeout or no port returned, using port 3001');
+        serverPort = 3001;
       }
       
-      // Always use the port returned by the server API
+      // Use the port returned by the server API
       const socketUrl = `http://localhost:${serverPort}`;
       console.log(`[Client] Connecting to socket server at: ${socketUrl}`);
       
