@@ -8,19 +8,14 @@ export const initializeSocket = async (): Promise<Socket> => {
     try {
       console.log('Initializing socket connection...');
       
-      // First, initialize the socket server
-      const response = await fetch('/api/socket');
-      if (!response.ok) {
-        throw new Error(`Failed to initialize socket server: ${response.status}`);
-      }
+      // First, initialize the socket server - this will start it if not already running
+      await fetch('/api/socket').catch(err => {
+        console.warn('Socket server API fetch warning:', err);
+        // Continue anyway as the standalone server may already be running
+      });
       
-      const protocol = window.location.protocol;
-      const host = window.location.host;
-      
-      // Create the socket connection
-      socket = io(`${protocol}//${host}`, {
-        path: '/api/socket',
-        addTrailingSlash: false,
+      // Connect to the standalone Socket.IO server
+      socket = io('http://localhost:3002', {
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
         timeout: 20000,

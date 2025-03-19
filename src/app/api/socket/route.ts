@@ -1,4 +1,3 @@
-import { Server as NetServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { NextResponse } from 'next/server';
 
@@ -19,23 +18,19 @@ const rooms: Record<string, Room> = {};
 export const dynamic = 'force-dynamic';
 export const preferredRegion = 'auto';
 
+// Create a singleton instance of Socket.IO server
+let io: SocketIOServer | null = null;
 
-
-interface SocketServer extends NetServer {
-  io?: SocketIOServer;
-}
-
-function getSocketIO(server: SocketServer): SocketIOServer {
-  if (server.io) {
+function getSocketIO(): SocketIOServer {
+  if (io) {
     console.log('Reusing existing Socket.IO server');
-    return server.io;
+    return io;
   }
 
   console.log('Creating new Socket.IO server instance');
   
-  const io = new SocketIOServer(server, {
-    path: '/api/socket',
-    addTrailingSlash: false,
+  // Create a standalone Socket.IO server
+  io = new SocketIOServer({
     cors: {
       origin: '*',
       methods: ['GET', 'POST'],
@@ -48,7 +43,10 @@ function getSocketIO(server: SocketServer): SocketIOServer {
     connectTimeout: 10000,
   });
 
-  server.io = io;
+  // Start the server on a specific port
+  io.listen(3002);
+  console.log('Socket.IO server listening on port 3002');
+  
   return io;
 }
 
@@ -56,16 +54,8 @@ function getSocketIO(server: SocketServer): SocketIOServer {
 
 export async function GET() {
   try {
-    // Get the server instance from the request
-    const response = new NextResponse('Socket.IO server is running');
-    const server = (response as { socket?: { server: unknown } }).socket?.server as SocketServer;
-    
-    if (!server) {
-      throw new Error('HTTP server not available');
-    }
-    
     // Initialize Socket.IO if not already initialized
-    const io = getSocketIO(server);
+    const io = getSocketIO();
     
     // Set up event handlers if not already set
     if (io.listeners('connection').length === 0) {
