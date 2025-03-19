@@ -28,7 +28,9 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
   const [isJoined, setIsJoined] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [socket, setSocket] = useState<Socket | null>(null);
+  const [joinError, setJoinError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const socketRef = useRef<Socket | null>(null);
 
   // Scroll to bottom of messages
   const scrollToBottom = () => {
@@ -39,97 +41,101 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
     scrollToBottom();
   }, [messages]);
 
-  // Initialize socket connection
+  // Initialize socket connection only once on component mount
   useEffect(() => {
-    let mounted = true;
-    let cleanup: (() => void) | undefined;
+    let isMounted = true;
     
-    const initSocketConnection = async () => {
+    const setupSocket = async () => {
       try {
-        // Initialize a new socket
         const newSocket = await initializeSocket();
         
-        if (!mounted) {
-          newSocket.disconnect();
-          return;
-        }
+        if (!isMounted) return;
         
-        console.log('Socket connected successfully:', newSocket.id);
+        socketRef.current = newSocket;
         setSocket(newSocket);
+        console.log('[Client] Socket connected and stored:', newSocket.id);
         
-        const handleDisconnect = (reason: string) => {
-          console.log('Socket disconnected:', reason);
-          if (mounted) {
-            setSocket(null);
-            setIsJoined(false);
+        // Listen for socket connection errors
+        const handleError = (error: any) => {
+          console.error('[Client] Socket error:', error);
+          if (isMounted) {
+            setJoinError(error.message || 'Connection error');
             setIsJoining(false);
-            
-            if (isJoining) {
-              alert('Connection lost. Please try again.');
-            }
           }
         };
         
-        const handleError = (error: Error | { message?: string }) => {
-          console.error('Socket error:', error);
-          if (mounted) {
-            setIsJoining(false);
-            const errorMessage = error instanceof Error ? error.message : 
-                                (typeof error === 'object' && error?.message) ? error.message : 'Unknown error';
-            alert(`Connection error: ${errorMessage}. Please try again.`);
-          }
-        };
-        
-        // Set up event listeners
-        newSocket.on('disconnect', handleDisconnect);
         newSocket.on('connect_error', handleError);
         newSocket.on('error', handleError);
+        newSocket.on('server-error', handleError);
         
-        // Store cleanup function
-        cleanup = () => {
-          newSocket.off('disconnect', handleDisconnect);
-          newSocket.off('connect_error', handleError);
-          newSocket.off('error', handleError);
-          newSocket.disconnect();
-        };
+        // Handle disconnection
+        newSocket.on('disconnect', (reason) => {
+          console.log('[Client] Socket disconnected:', reason);
+          if (isMounted && isJoined) {
+            setJoinError('Connection lost. Please refresh the page.');
+            setIsJoining(false);
+          }
+        });
+        
       } catch (error) {
-        console.error('Error setting up socket:', error);
-        if (mounted) {
-          alert('Failed to establish connection. Please refresh the page.');
+        console.error('[Client] Error setting up socket:', error);
+        if (isMounted) {
+          setJoinError('Failed to establish connection. Please refresh the page.');
+          setIsJoining(false);
         }
       }
     };
     
-    initSocketConnection();
+    setupSocket();
     
     return () => {
-      mounted = false;
-      if (cleanup) {
-        cleanup();
-      }
+      isMounted = false;
+      // Don't disconnect the socket here, as it might be a shared instance
     };
-  }, [isJoining]); // Add isJoining as a dependency
-    
-  // Handle socket events for messages and users
+  }, []);
+  
+  // Set up socket event listeners for chat functions
   useEffect(() => {
     if (!socket) return;
     
-    // Handle user joining
-    const handleUserJoined = ({ user, users }: { user: User; users: User[] }) => {
-      console.log('User joined:', user.name);
+    console.log('[Client] Setting up socket event listeners');
+    
+    // Handle join success (for the user who joined)
+    const handleJoinSuccess = ({ user, users, roomId }: { user: User; users: User[]; roomId: string }) => {
+      console.log('[Client] Join success:', { user, roomId });
       setUsers(users);
       setIsJoined(true);
       setIsJoining(false);
+      setJoinError(null);
       
       setMessages((prev: Message[]) => [
         ...prev,
         {
           id: Date.now().toString(),
-          text: `${user.name} has joined the room`,
+          text: `You have joined the room`,
           sender: { id: 'system', name: 'System' },
           timestamp: new Date().toISOString()
         }
       ]);
+    };
+    
+    // Handle user joining (for other users in the room)
+    const handleUserJoined = ({ user, users }: { user: User; users: User[] }) => {
+      console.log('[Client] User joined:', user.name);
+      setUsers(users);
+      
+      // Don't add message for the current user (avoid duplicates)
+      if (user.id !== socket.id) {
+        setMessages((prev: Message[]) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            text: `${user.name} has joined the room`,
+            sender: { id: 'system', name: 'System' },
+            timestamp: new Date().toISOString()
+          }
+        ]);
+      }
     };
     
     // Handle new messages
@@ -139,34 +145,40 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
     
     // Handle user leaving
     const handleUserLeft = ({ userId, users }: { userId: string; users: User[] }) => {
+      console.log('[Client] User left:', userId);
       setUsers(users);
+      
       const leftUser = users.find(u => u.id === userId);
-      if (leftUser) {
-        setMessages((prev: Message[]) => [
-          ...prev,
-          {
-            id: Date.now().toString(),
-            text: `${leftUser.name} has left the room`,
-            sender: { id: 'system', name: 'System' },
-            timestamp: new Date().toISOString()
-          }
-        ]);
-      }
+      const userName = leftUser ? leftUser.name : 'Someone';
+      
+      setMessages((prev: Message[]) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          text: `${userName} has left the room`,
+          sender: { id: 'system', name: 'System' },
+          timestamp: new Date().toISOString()
+        }
+      ]);
     };
     
     // Handle server errors
     const handleServerError = (error: { message: string }) => {
-      console.error('Server error:', error);
+      console.error('[Client] Server error:', error);
       setIsJoining(false);
-      alert(`Server error: ${error.message}. Please try again.`);
+      setJoinError(error.message || 'Server error');
     };
     
+    // Add event listeners
+    socket.on('join-success', handleJoinSuccess);
     socket.on('user-joined', handleUserJoined);
     socket.on('new-message', handleNewMessage);
     socket.on('user-left', handleUserLeft);
     socket.on('server-error', handleServerError);
     
     return () => {
+      // Remove event listeners when component unmounts or socket changes
+      socket.off('join-success', handleJoinSuccess);
       socket.off('user-joined', handleUserJoined);
       socket.off('new-message', handleNewMessage);
       socket.off('user-left', handleUserLeft);
@@ -174,70 +186,57 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
     };
   }, [socket]);
 
-
-
   const handleJoinRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!userName.trim()) {
-      alert('Please enter your name');
+      setJoinError('Please enter your name');
       return;
     }
     
-    console.log('Starting join room process...');
     setIsJoining(true);
+    setJoinError(null);
     
     try {
-      // Check if socket exists and is connected
-      let currentSocket = socket;
-      if (!currentSocket || !currentSocket.connected) {
-        console.log('Socket not connected, attempting to reconnect...');
-        try {
-          currentSocket = await initializeSocket();
-          console.log('Socket reconnected successfully:', currentSocket.id);
-          setSocket(currentSocket);
-        } catch (error) {
-          console.error('Error reconnecting:', error);
-          setIsJoining(false);
-          alert('Connection error. Please refresh the page.');
-          return;
-        }
+      // Get the current socket or initialize a new one
+      const currentSocket = socketRef.current || await initializeSocket();
+      
+      if (!currentSocket) {
+        throw new Error('Could not initialize socket connection');
       }
       
-      // Add a timeout to detect if the server doesn't respond
-      const joinTimeout = setTimeout(() => {
-        if (isJoining) {
-          console.log('Join room timeout reached');
-          setIsJoining(false);
-          alert('Server did not respond. Please try again.');
-        }
-      }, 10000); // 10 second timeout
+      if (!currentSocket.connected) {
+        throw new Error('Socket is not connected');
+      }
       
-      // Add one-time event listeners for join response
-      const handleJoinSuccess = ({ roomId, user, users }: { roomId: string; user: User; users: User[] }) => {
-        console.log('Join success:', { roomId, user, users });
-        clearTimeout(joinTimeout);
-        setIsJoined(true);
-        setIsJoining(false);
-        setUsers(users);
-      };
+      socketRef.current = currentSocket;
+      setSocket(currentSocket);
       
-      const handleServerError = (error: { message: string }) => {
-        console.error('Server error during join:', error);
-        clearTimeout(joinTimeout);
-        setIsJoining(false);
-        alert(`Server error: ${error.message}. Please try again.`);
-      };
-      
-      currentSocket.once('join-success', handleJoinSuccess);
-      currentSocket.once('server-error', handleServerError);
-      
-      // Log before emitting event
-      console.log('Emitting join-room event...', {
+      console.log('[Client] Emitting join-room event:', {
         roomId: unwrappedParams.roomId,
         userName: userName.trim(),
-        socketId: currentSocket.id,
-        connected: currentSocket.connected
+        socketId: currentSocket.id
+      });
+      
+      // Set a timeout to detect if the server doesn't respond
+      const timeoutId = setTimeout(() => {
+        setIsJoining(false);
+        setJoinError('Server did not respond. Please try again.');
+      }, 10000);
+      
+      // Clear previous listeners to avoid duplicates
+      currentSocket.off('join-success');
+      currentSocket.off('server-error');
+      
+      // Listen for join success or error
+      currentSocket.once('join-success', () => {
+        clearTimeout(timeoutId);
+        // Main handler in the useEffect will handle the actual state updates
+      });
+      
+      currentSocket.once('server-error', () => {
+        clearTimeout(timeoutId);
+        // Main handler in the useEffect will handle the actual state updates
       });
       
       // Emit the join-room event
@@ -246,18 +245,10 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
         userName: userName.trim()
       });
       
-      // Cleanup function
-      return () => {
-        clearTimeout(joinTimeout);
-        if (currentSocket) {
-          currentSocket.off('join-success', handleJoinSuccess);
-          currentSocket.off('server-error', handleServerError);
-        }
-      };
     } catch (error) {
-      console.error('Error joining room:', error);
+      console.error('[Client] Error joining room:', error);
       setIsJoining(false);
-      alert('Failed to join room. Please try again.');
+      setJoinError(error instanceof Error ? error.message : 'Failed to join room');
     }
   };
 
@@ -272,15 +263,6 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
     }
     
     try {
-      const messageObj: Message = {
-        id: Date.now().toString(),
-        text: message.trim(),
-        sender: { id: socket.id || 'unknown', name: userName },
-        timestamp: new Date().toISOString()
-      };
-      
-      setMessages((prev: Message[]) => [...prev, messageObj]);
-      
       socket.emit('send-message', {
         roomId: unwrappedParams.roomId,
         message: message.trim(),
@@ -291,6 +273,14 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
     } catch (error) {
       console.error('Error sending message:', error);
       alert('Failed to send message. Please try again.');
+    }
+  };
+  
+  const handleLeaveRoom = () => {
+    if (socket) {
+      // No need to explicitly leave the room, the server will handle it on disconnect
+      // Just navigate away
+      router.push("/");
     }
   };
   
@@ -325,6 +315,12 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
                 required
               />
             </div>
+
+            {joinError && (
+              <div className="p-3 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-800 rounded-md text-red-800 dark:text-red-300 text-sm">
+                {joinError}
+              </div>
+            )}
 
             <button
               type="submit"
@@ -362,7 +358,7 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
             </p>
           </div>
           <button
-            onClick={() => router.push("/")}
+            onClick={handleLeaveRoom}
             className="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
           >
             Leave Room
@@ -375,61 +371,38 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
         {/* Chat messages */}
         <div className="flex-1 flex flex-col">
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {messages.length === 0 ? (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-gray-500 dark:text-gray-400 text-center">
-                  No messages yet. Be the first to send a message!
-                </p>
-              </div>
-            ) : (
-              messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex ${
-                    msg.sender.id === "system"
-                      ? "justify-center"
-                      : msg.sender.id === socket?.id
-                      ? "justify-end"
-                      : "justify-start"
+            {messages.map((msg) => (
+              <div 
+                key={msg.id}
+                className={`flex ${msg.sender.id === 'system' ? 'justify-center' : 
+                  msg.sender.id === (socket?.id || 'unknown') ? 'justify-end' : 'justify-start'}`}
+              >
+                <div 
+                  className={`max-w-xs md:max-w-md lg:max-w-lg px-4 py-2 rounded-lg ${
+                    msg.sender.id === 'system' 
+                      ? 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-sm' 
+                      : msg.sender.id === (socket?.id || 'unknown')
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white'
                   }`}
                 >
-                  {msg.sender.id === "system" ? (
-                    <div className="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-md text-sm text-gray-600 dark:text-gray-300">
-                      {msg.text}
-                    </div>
-                  ) : (
-                    <div
-                      className={`max-w-xs sm:max-w-md space-y-1 ${
-                        msg.sender.id === socket?.id ? "items-end" : "items-start"
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          {msg.sender.id === socket?.id ? "You" : msg.sender.name}
-                        </span>
-                        <span className="text-xs text-gray-400 dark:text-gray-500">
-                          {formatTime(msg.timestamp)}
-                        </span>
-                      </div>
-                      <div
-                        className={`px-4 py-2 rounded-lg ${
-                          msg.sender.id === socket?.id
-                            ? "bg-blue-600 text-white"
-                            : "bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700"
-                        }`}
-                      >
-                        {msg.text}
-                      </div>
+                  {msg.sender.id !== 'system' && msg.sender.id !== (socket?.id || 'unknown') && (
+                    <div className="font-semibold text-sm text-gray-700 dark:text-gray-300 mb-1">
+                      {msg.sender.name}
                     </div>
                   )}
+                  <div>{msg.text}</div>
+                  <div className="text-xs text-right mt-1 opacity-70">
+                    {formatTime(msg.timestamp)}
+                  </div>
                 </div>
-              ))
-            )}
+              </div>
+            ))}
             <div ref={messagesEndRef} />
           </div>
 
           {/* Message input */}
-          <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 p-4">
+          <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
             <form onSubmit={handleSendMessage} className="flex space-x-2">
               <input
                 type="text"
@@ -437,11 +410,12 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
                 onChange={(e) => setMessage(e.target.value)}
                 placeholder="Type a message..."
                 className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                autoComplete="off"
               />
               <button
                 type="submit"
                 disabled={!message.trim()}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors disabled:opacity-50"
               >
                 Send
               </button>
@@ -449,20 +423,20 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
           </div>
         </div>
 
-        {/* User list sidebar */}
-        <div className="hidden md:block w-64 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700">
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="font-semibold text-gray-900 dark:text-white">People</h2>
-          </div>
-          <ul className="p-2">
+        {/* Users sidebar */}
+        <div className="hidden md:block w-64 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 p-4">
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">
+            Users in Room
+          </h2>
+          <ul className="space-y-2">
             {users.map((user) => (
-              <li
+              <li 
                 key={user.id}
-                className="px-2 py-2 rounded-md flex items-center space-x-2"
+                className="flex items-center space-x-2"
               >
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span className="text-gray-900 dark:text-white">
-                  {user.id === socket?.id ? `${user.name} (You)` : user.name}
+                <div className="h-2 w-2 rounded-full bg-green-500"></div>
+                <span className={`${user.id === (socket?.id || 'unknown') ? 'font-semibold' : ''} text-gray-700 dark:text-gray-300`}>
+                  {user.name} {user.id === (socket?.id || 'unknown') ? '(You)' : ''}
                 </span>
               </li>
             ))}
