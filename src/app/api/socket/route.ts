@@ -1,3 +1,4 @@
+import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { NextResponse } from 'next/server';
 
@@ -20,6 +21,7 @@ export const preferredRegion = 'auto';
 
 // Create a singleton instance of Socket.IO server
 let io: SocketIOServer | null = null;
+let httpServer: ReturnType<typeof createServer> | null = null;
 
 function getSocketIO(): SocketIOServer {
   if (io) {
@@ -29,8 +31,16 @@ function getSocketIO(): SocketIOServer {
 
   console.log('Creating new Socket.IO server instance');
   
-  // Create a standalone Socket.IO server
-  io = new SocketIOServer({
+  // Create HTTP server if not exists
+  if (!httpServer) {
+    httpServer = createServer();
+    httpServer.listen(3002, () => {
+      console.log('HTTP server listening on port 3002');
+    });
+  }
+  
+  // Create Socket.IO server attached to HTTP server
+  io = new SocketIOServer(httpServer, {
     cors: {
       origin: '*',
       methods: ['GET', 'POST'],
@@ -43,10 +53,7 @@ function getSocketIO(): SocketIOServer {
     connectTimeout: 10000,
   });
 
-  // Start the server on a specific port
-  io.listen(3002);
-  console.log('Socket.IO server listening on port 3002');
-  
+  console.log('Socket.IO server initialized');
   return io;
 }
 
@@ -60,11 +67,18 @@ export async function GET() {
     // Set up event handlers if not already set
     if (io.listeners('connection').length === 0) {
       console.log('Setting up Socket.IO event handlers...');
+      console.log('Setting up Socket.IO event handlers...');
       
       io.on('connection', (socket) => {
         console.log('Client connected:', socket.id);
         
+        // Log all rooms on connection
+        console.log('Current rooms:', Object.keys(rooms));
+        console.log('Socket rooms:', socket.rooms);
+        
         socket.on('join-room', ({ roomId, userName }) => {
+          console.log(`Received join-room request for room ${roomId} from user ${userName}`);
+          
           try {
             // Validate input
             if (!roomId || typeof roomId !== 'string') {
@@ -84,15 +98,21 @@ export async function GET() {
             // Check if user is already in room
             const existingUser = rooms[roomId].users.find(u => u.id === socket.id);
             if (existingUser) {
+              console.log(`User ${userName} already in room ${roomId}, updating name`);
               existingUser.name = userName;
             } else {
               // Add user to room
               const user = { id: socket.id, name: userName };
               rooms[roomId].users.push(user);
+              console.log(`Added user ${userName} to room ${roomId}`);
             }
             
             // Join the Socket.IO room
             socket.join(roomId);
+            console.log(`Socket ${socket.id} joined room ${roomId}`);
+            
+            // Log room state
+            console.log(`Room ${roomId} users:`, rooms[roomId].users);
             
             // Notify everyone in the room about the user
             io.to(roomId).emit('user-joined', {
@@ -101,6 +121,13 @@ export async function GET() {
             });
             
             console.log(`User ${userName} joined room ${roomId}`);
+            
+            // Acknowledge successful join
+            socket.emit('join-success', {
+              roomId,
+              user: { id: socket.id, name: userName },
+              users: rooms[roomId].users,
+            });
           } catch (error) {
             console.error('Error in join-room:', error);
             socket.emit('server-error', { 
@@ -148,8 +175,8 @@ export async function GET() {
           }
         });
         
-        socket.on('disconnect', () => {
-          console.log('Client disconnected:', socket.id);
+        socket.on('disconnect', (reason) => {
+          console.log('Client disconnected:', socket.id, 'Reason:', reason);
           
           // Remove user from all rooms they were in
           Object.keys(rooms).forEach((roomId) => {

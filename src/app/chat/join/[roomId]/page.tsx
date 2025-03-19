@@ -184,51 +184,76 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
       return;
     }
     
-    // Check if socket exists and is connected
-    if (!socket || !socket.connected) {
-      console.log('Socket not connected, attempting to reconnect...');
-      try {
-        const newSocket = await initializeSocket();
-        setSocket(newSocket);
-      } catch (error) {
-        console.error('Error reconnecting:', error);
-        alert('Connection error. Please refresh the page.');
-        setIsJoining(false);
-        return;
-      }
-    }
-    
+    console.log('Starting join room process...');
     setIsJoining(true);
     
     try {
+      // Check if socket exists and is connected
+      let currentSocket = socket;
+      if (!currentSocket || !currentSocket.connected) {
+        console.log('Socket not connected, attempting to reconnect...');
+        try {
+          currentSocket = await initializeSocket();
+          console.log('Socket reconnected successfully:', currentSocket.id);
+          setSocket(currentSocket);
+        } catch (error) {
+          console.error('Error reconnecting:', error);
+          setIsJoining(false);
+          alert('Connection error. Please refresh the page.');
+          return;
+        }
+      }
+      
       // Add a timeout to detect if the server doesn't respond
       const joinTimeout = setTimeout(() => {
         if (isJoining) {
+          console.log('Join room timeout reached');
           setIsJoining(false);
           alert('Server did not respond. Please try again.');
         }
       }, 10000); // 10 second timeout
       
-      // At this point we've already checked socket is not null above
-      // But we need to check again for TypeScript
-      if (socket) {
-        // Emit the join-room event
-        socket.emit('join-room', {
-          roomId: unwrappedParams.roomId,
-          userName: userName.trim()
-        });
-      } else {
-        // This should never happen due to our checks above, but TypeScript requires it
-        setIsJoining(false);
+      // Add one-time event listeners for join response
+      const handleJoinSuccess = ({ roomId, user, users }: { roomId: string; user: User; users: User[] }) => {
+        console.log('Join success:', { roomId, user, users });
         clearTimeout(joinTimeout);
-        alert('Connection error. Please try again.');
-        return () => {};
-      }
+        setIsJoined(true);
+        setIsJoining(false);
+        setUsers(users);
+      };
       
-      // Note: setIsJoined is handled in the user-joined event handler
+      const handleServerError = (error: { message: string }) => {
+        console.error('Server error during join:', error);
+        clearTimeout(joinTimeout);
+        setIsJoining(false);
+        alert(`Server error: ${error.message}. Please try again.`);
+      };
       
-      // Clear the timeout when component unmounts
-      return () => clearTimeout(joinTimeout);
+      currentSocket.once('join-success', handleJoinSuccess);
+      currentSocket.once('server-error', handleServerError);
+      
+      // Log before emitting event
+      console.log('Emitting join-room event...', {
+        roomId: unwrappedParams.roomId,
+        userName: userName.trim(),
+        socketId: currentSocket.id,
+        connected: currentSocket.connected
+      });
+      
+      // Emit the join-room event
+      currentSocket.emit('join-room', {
+        roomId: unwrappedParams.roomId,
+        userName: userName.trim()
+      });
+      
+      // Cleanup function
+      return () => {
+        clearTimeout(joinTimeout);
+        if (currentSocket) {
+          currentSocket.off('join-success', handleJoinSuccess);
+          currentSocket.off('server-error', handleServerError);
+        }
+      };
     } catch (error) {
       console.error('Error joining room:', error);
       setIsJoining(false);
