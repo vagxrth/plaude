@@ -27,9 +27,16 @@ app.prepare().then(() => {
     path: '/socket.io',
     pingTimeout: 60000,
     pingInterval: 25000,
-    transports: ['websocket', 'polling'],
+    transports: ['polling', 'websocket'],
     allowEIO3: true,
     connectTimeout: 20000,
+    maxHttpBufferSize: 1e8,
+    cookie: {
+      name: 'io',
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production'
+    }
   });
 
   // Set up your Socket.IO event handlers

@@ -71,26 +71,24 @@ export const initializeSocket = async (): Promise<Socket> => {
         serverPort = 3000;
       }
       
-      // Use the current hostname instead of hardcoded localhost
-      const hostname = window.location.hostname;
+      // Check if we're using HTTPS
       const isSecure = window.location.protocol === 'https:';
-      // In development, use the port from the API
-      const port = hostname === 'localhost' ? `:${serverPort || 3000}` : '';
-      const socketUrl = hostname === 'localhost' 
-        ? `http://${hostname}${port}`  // For development
-        : window.location.origin;      // For production
+      
+      // Use origin for both development and production
+      const socketUrl = window.location.origin;
       
       console.log(`[Client] Connecting to socket server at: ${socketUrl}`);
       
       socket = io(socketUrl, {
-        reconnectionAttempts: 5,
+        reconnectionAttempts: 10,
         reconnectionDelay: 1000,
         timeout: 60000,
-        transports: ['websocket', 'polling'],
+        transports: ['polling', 'websocket'], // Try polling first, then upgrade to websocket
         path: '/socket.io',
         autoConnect: true,
         forceNew: true,
-        secure: isSecure
+        secure: isSecure,
+        rejectUnauthorized: false // Allow self-signed certificates
       });
       
       if (!socket) {
