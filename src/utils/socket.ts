@@ -65,17 +65,21 @@ export const initializeSocket = async (): Promise<Socket> => {
         }
       }
       
-      // Always use port 3001 since that's what the server is using when Next.js is running
+      // Always use port 3000 since that's what the server is using when Next.js is running
       if (!serverInitialized || !serverPort) {
-        console.warn('[Client] Server initialization timeout or no port returned, using port 3001');
-        serverPort = 3001;
+        console.warn('[Client] Server initialization timeout or no port returned, using port 3000');
+        serverPort = 3000;
       }
       
       // Use the current hostname instead of hardcoded localhost
       const hostname = window.location.hostname;
-      const protocol = window.location.protocol === 'https:' ? 'https' : 'http';
-      const port = hostname === 'localhost' ? `:${serverPort}` : '';
-      const socketUrl = `${protocol}://${hostname}${port}`;
+      const isSecure = window.location.protocol === 'https:';
+      // In development, use the port from the API
+      const port = hostname === 'localhost' ? `:${serverPort || 3000}` : '';
+      const socketUrl = hostname === 'localhost' 
+        ? `http://${hostname}${port}`  // For development
+        : window.location.origin;      // For production
+      
       console.log(`[Client] Connecting to socket server at: ${socketUrl}`);
       
       socket = io(socketUrl, {
@@ -86,7 +90,7 @@ export const initializeSocket = async (): Promise<Socket> => {
         path: '/socket.io',
         autoConnect: true,
         forceNew: true,
-        secure: window.location.protocol === 'https:'
+        secure: isSecure
       });
       
       if (!socket) {
