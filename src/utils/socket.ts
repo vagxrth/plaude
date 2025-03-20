@@ -79,6 +79,22 @@ export const initializeSocket = async (): Promise<Socket> => {
       
       console.log(`[Client] Connecting to socket server at: ${socketUrl}`);
       
+      // Check if we're on a serverless platform that doesn't support WebSockets
+      const isServerlessPlatform = 
+        window.location.hostname.includes('vercel.app') || 
+        window.location.hostname.includes('netlify.app') ||
+        window.location.hostname.includes('vagarth.tech'); // Add your custom domain
+      
+      if (isServerlessPlatform) {
+        console.warn(`
+          [Client] WARNING: You appear to be running on a serverless platform (${window.location.hostname}).
+          Many serverless platforms like Vercel and Netlify don't support WebSockets.
+          Consider:
+          1. Using a third-party service like Socket.IO Cloud, Pusher, or Ably
+          2. Hosting on a platform that supports WebSockets like Fly.io, Railway, DigitalOcean, or Heroku
+        `);
+      }
+      
       socket = io(socketUrl, {
         reconnectionAttempts: 10,
         reconnectionDelay: 1000,
