@@ -86,6 +86,7 @@ export const initializeSocket = async (): Promise<Socket> => {
         path: '/socket.io',
         autoConnect: true,
         forceNew: true,
+        secure: window.location.protocol === 'https:'
       });
       
       if (!socket) {
