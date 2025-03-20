@@ -71,8 +71,11 @@ export const initializeSocket = async (): Promise<Socket> => {
         serverPort = 3001;
       }
       
-      // Use the port returned by the server API
-      const socketUrl = `http://localhost:${serverPort}`;
+      // Use the current hostname instead of hardcoded localhost
+      const hostname = window.location.hostname;
+      const protocol = window.location.protocol === 'https:' ? 'https' : 'http';
+      const port = hostname === 'localhost' ? `:${serverPort}` : '';
+      const socketUrl = `${protocol}://${hostname}${port}`;
       console.log(`[Client] Connecting to socket server at: ${socketUrl}`);
       
       socket = io(socketUrl, {
