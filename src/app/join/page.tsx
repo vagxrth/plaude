@@ -50,7 +50,7 @@ export default function JoinPage() {
               id="roomId"
               value={roomId}
               onChange={(e) => {
-                setRoomId(e.target.value.toUpperCase());
+                setRoomId(e.target.value);
                 if (error) setError("");
               }}
               placeholder="Enter 6-character room ID"
