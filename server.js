@@ -168,6 +168,60 @@ app.prepare().then(() => {
       }
     });
     
+    // Handle user explicitly leaving room
+    socket.on('leave-room', ({ roomId, userName }) => {
+      try {
+        console.log(`[Server] User ${userName} is leaving room ${roomId}`);
+        
+        // Validate input
+        if (!roomId || typeof roomId !== 'string') {
+          throw new Error('Invalid room ID');
+        }
+        
+        if (!userName || typeof userName !== 'string') {
+          throw new Error('Invalid username');
+        }
+        
+        // Check if room exists
+        if (!rooms[roomId]) {
+          console.log(`[Server] Room ${roomId} not found, may have been removed already`);
+          return;
+        }
+        
+        // Find and remove user from room
+        const userIndex = rooms[roomId].users.findIndex(u => u.id === socket.id);
+        if (userIndex !== -1) {
+          const user = rooms[roomId].users[userIndex];
+          rooms[roomId].users.splice(userIndex, 1);
+          
+          // Leave the Socket.IO room
+          socket.leave(roomId);
+          
+          // Notify everyone in the room about the user leaving with the user's name
+          io.to(roomId).emit('user-left', {
+            userId: socket.id,
+            userName: user.name, // Include the user's name
+            users: rooms[roomId].users
+          });
+          
+          console.log(`[Server] User ${user.name} left room ${roomId} explicitly`);
+          
+          // Remove room if empty
+          if (rooms[roomId].users.length === 0) {
+            delete rooms[roomId];
+            console.log(`[Server] Room ${roomId} removed (empty after explicit leave)`);
+          }
+        } else {
+          console.log(`[Server] User not found in room ${roomId}`);
+        }
+      } catch (error) {
+        console.error('[Server] Error in leave-room:', error);
+        socket.emit('server-error', { 
+          message: error instanceof Error ? error.message : 'Failed to leave room'
+        });
+      }
+    });
+    
     // Handle disconnection
     socket.on('disconnect', (reason) => {
       console.log('[Server] Client disconnected:', socket.id, 'Reason:', reason);

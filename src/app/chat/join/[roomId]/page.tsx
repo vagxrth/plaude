@@ -144,18 +144,28 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
     };
     
     // Handle user leaving
-    const handleUserLeft = ({ userId, users }: { userId: string; users: User[] }) => {
-      console.log('[Client] User left:', userId);
+    const handleUserLeft = ({ userId, users, userName }: { userId: string; users: User[]; userName?: string }) => {
+      console.log('[Client] User left:', userId, userName ? `(${userName})` : '');
       setUsers(users);
       
-      const leftUser = users.find(u => u.id === userId);
-      const userName = leftUser ? leftUser.name : 'Someone';
+      let displayName = 'Someone';
+      
+      // First check if userName was provided directly from server (explicit leave)
+      if (userName) {
+        displayName = userName;
+      } else {
+        // Fall back to searching in the previous users list if userName wasn't provided
+        const leftUser = users.find(u => u.id === userId);
+        if (leftUser && leftUser.name) {
+          displayName = leftUser.name;
+        }
+      }
       
       setMessages((prev: Message[]) => [
         ...prev,
         {
           id: Date.now().toString(),
-          text: `${userName} has left the room`,
+          text: `${displayName} has left the room`,
           sender: { id: 'system', name: 'System' },
           timestamp: new Date().toISOString()
         }
@@ -285,8 +295,22 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
   
   const handleLeaveRoom = () => {
     if (socket) {
-      // No need to explicitly leave the room, the server will handle it on disconnect
-      // Just navigate away
+      try {
+        // Explicitly emit leave-room event before navigating away
+        socket.emit('leave-room', {
+          roomId: unwrappedParams.roomId,
+          userName: userName,
+          userId: socket.id
+        });
+        
+        console.log(`[Client] Emitted leave-room event for user ${userName} in room ${unwrappedParams.roomId}`);
+      } catch (error) {
+        console.error('[Client] Error leaving room:', error);
+      } finally {
+        // Navigate away
+        router.push("/");
+      }
+    } else {
       router.push("/");
     }
   };
