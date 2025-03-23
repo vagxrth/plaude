@@ -5,10 +5,19 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { initializeSocket } from "@/utils/socket";
 import { Socket } from "socket.io-client";
+import Image from "next/image";
 
 interface User {
   id: string;
   name: string;
+}
+
+interface FileAttachment {
+  id: string;
+  name: string;
+  type: string;
+  data: string; // Base64 encoded file
+  size: number;
 }
 
 interface Message {
@@ -16,6 +25,7 @@ interface Message {
   text: string;
   sender: User;
   timestamp: string;
+  attachment?: FileAttachment;
 }
 
 export default function ChatRoom({ params }: { params: Promise<{ roomId: string }> }) {
@@ -29,6 +39,8 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
   const [isJoining, setIsJoining] = useState(false);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [fileAttachment, setFileAttachment] = useState<FileAttachment | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
 
@@ -272,7 +284,7 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!message.trim()) return;
+    if (!message.trim() && !fileAttachment) return;
     
     if (!socket || !isJoined) {
       alert('Not connected to chat. Please try rejoining.');
@@ -283,10 +295,15 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
       socket.emit('send-message', {
         roomId: unwrappedParams.roomId,
         message: message.trim(),
-        sender: { id: socket.id || 'unknown', name: userName }
+        sender: { id: socket.id || 'unknown', name: userName },
+        attachment: fileAttachment
       });
       
       setMessage('');
+      setFileAttachment(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       alert('Failed to send message. Please try again.');
@@ -317,6 +334,92 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
   
   const formatTime = (timestamp: string): string => {
     return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // Check file size (limit to 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File size exceeds 5MB limit');
+      e.target.value = '';
+      return;
+    }
+    
+    // Check file type (allow images, PDFs, and docx)
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Only images, PDFs, and DOCX files are allowed');
+      e.target.value = '';
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        const base64 = event.target.result.toString();
+        setFileAttachment({
+          id: Date.now().toString(),
+          name: file.name,
+          type: file.type,
+          data: base64,
+          size: file.size
+        });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+  
+  const handleRemoveAttachment = () => {
+    setFileAttachment(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+  
+  const downloadAttachment = (attachment: FileAttachment) => {
+    const link = document.createElement('a');
+    link.href = attachment.data;
+    link.download = attachment.name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+  
+  const renderAttachment = (attachment: FileAttachment) => {
+    if (attachment.type.startsWith('image/')) {
+      return (
+        <div className="mt-2">
+          <Image 
+            src={attachment.data} 
+            alt={attachment.name} 
+            className="max-w-full max-h-64 rounded-md cursor-pointer"
+            onClick={() => downloadAttachment(attachment)}
+          />
+          <div className="text-xs mt-1 text-gray-500 dark:text-gray-400">
+            {attachment.name} ({Math.round(attachment.size / 1024)}KB) - Click to download
+          </div>
+        </div>
+      );
+    } else {
+      return (
+        <div 
+          className="mt-2 p-3 bg-gray-100 dark:bg-gray-900 rounded-md flex items-center cursor-pointer"
+          onClick={() => downloadAttachment(attachment)}
+        >
+          <div className="mr-3">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <div>
+            <div className="text-sm font-medium">{attachment.name}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">{Math.round(attachment.size / 1024)}KB - Click to download</div>
+          </div>
+        </div>
+      );
+    }
   };
 
   if (!isJoined) {
@@ -423,6 +526,7 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
                     </div>
                   )}
                   <div>{msg.text}</div>
+                  {msg.attachment && renderAttachment(msg.attachment)}
                   <div className="text-xs text-right mt-1 opacity-70">
                     {formatTime(msg.timestamp)}
                   </div>
@@ -434,22 +538,55 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
 
           {/* Message input */}
           <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
-            <form onSubmit={handleSendMessage} className="flex space-x-2">
-              <input
-                type="text"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="Type a message..."
-                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-                autoComplete="off"
-              />
-              <button
-                type="submit"
-                disabled={!message.trim()}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors disabled:opacity-50"
-              >
-                Send
-              </button>
+            <form onSubmit={handleSendMessage} className="space-y-2">
+              {fileAttachment && (
+                <div className="flex items-center p-2 bg-gray-100 dark:bg-gray-700 rounded-md">
+                  <span className="text-sm truncate flex-1">{fileAttachment.name}</span>
+                  <button 
+                    type="button"
+                    onClick={handleRemoveAttachment}
+                    className="ml-2 text-red-500 hover:text-red-700"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+              <div className="flex space-x-2">
+                <input
+                  type="text"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Type a message..."
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md transition-colors"
+                  title="Attach a file"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  </svg>
+                </button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  accept="image/jpeg,image/png,image/gif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                />
+                <button
+                  type="submit"
+                  disabled={!message.trim() && !fileAttachment}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors disabled:opacity-50"
+                >
+                  Send
+                </button>
+              </div>
             </form>
           </div>
         </div>

@@ -129,19 +129,38 @@ app.prepare().then(() => {
     });
     
     // Handle message sending
-    socket.on('send-message', ({ roomId, message, sender }) => {
+    socket.on('send-message', ({ roomId, message, sender, attachment }) => {
       try {
         // Validate input
         if (!roomId || typeof roomId !== 'string') {
           throw new Error('Invalid room ID');
         }
         
-        if (!message || typeof message !== 'string') {
+        // Allow empty message if there's an attachment
+        if ((!message || typeof message !== 'string') && !attachment) {
           throw new Error('Invalid message');
         }
         
         if (!sender || typeof sender !== 'object' || !sender.name) {
           throw new Error('Invalid sender information');
+        }
+        
+        // Validate attachment if present
+        if (attachment) {
+          if (!attachment.id || !attachment.name || !attachment.type || !attachment.data || !attachment.size) {
+            throw new Error('Invalid attachment data');
+          }
+          
+          // Check file size (limit to 5MB)
+          if (attachment.size > 5 * 1024 * 1024) {
+            throw new Error('File size exceeds 5MB limit');
+          }
+          
+          // Check file type (only allow images, PDFs, and docx)
+          const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+          if (!allowedTypes.includes(attachment.type)) {
+            throw new Error('Invalid file type. Only images, PDFs, and DOCX files are allowed');
+          }
         }
         
         // Check if room exists
@@ -152,14 +171,21 @@ app.prepare().then(() => {
         // Create message object
         const messageObj = {
           id: Date.now().toString(),
-          text: message,
+          text: message || '',
           sender,
           timestamp: new Date().toISOString(),
         };
         
+        // Add attachment if present
+        if (attachment) {
+          messageObj.attachment = attachment;
+          console.log(`[Server] Message with ${attachment.type} attachment sent in room ${roomId} by ${sender.name}`);
+        } else {
+          console.log(`[Server] Message sent in room ${roomId} by ${sender.name}`);
+        }
+        
         // Broadcast message to everyone in the room
         io.to(roomId).emit('new-message', messageObj);
-        console.log(`[Server] Message sent in room ${roomId} by ${sender.name}`);
       } catch (error) {
         console.error('[Server] Error in send-message:', error);
         socket.emit('server-error', { 
