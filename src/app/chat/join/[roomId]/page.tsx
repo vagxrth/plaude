@@ -391,7 +391,7 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
     if (attachment.type.startsWith('image/')) {
       return (
         <div className="mt-2">
-          <Image 
+          <img 
             src={attachment.data} 
             alt={attachment.name} 
             className="max-w-full max-h-64 rounded-md cursor-pointer"
