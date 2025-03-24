@@ -391,9 +391,11 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
     if (attachment.type.startsWith('image/')) {
       return (
         <div className="mt-2">
-          <img 
+          <Image 
             src={attachment.data} 
             alt={attachment.name} 
+            width={256}
+            height={256}
             className="max-w-full max-h-64 rounded-md cursor-pointer"
             onClick={() => downloadAttachment(attachment)}
           />
