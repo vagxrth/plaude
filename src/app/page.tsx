@@ -2,12 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { generateRoomId } from "@/utils/roomUtils";
+import { MessageCircle, Video } from "lucide-react";
+import ActionButton from "@/components/ActionButton";
 
 export default function Home() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [roomId, setRoomId] = useState('');
+  const [showRoomInput, setShowRoomInput] = useState(false);
 
   const handleChatClick = () => {
     setIsLoading(true);
@@ -21,72 +24,86 @@ export default function Home() {
     router.push(`/video/join/${roomId}`);
   };
 
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-background to-background/80">
-      <div className="w-full max-w-md p-8 space-y-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Converse</h1>
-          <p className="mt-2 text-gray-600 dark:text-gray-300">
-            Connect with others through chat or video
-          </p>
-        </div>
+  const handleEnterRoom = () => {
+    if (showRoomInput && roomId.trim()) {
+      router.push(`/chat/join/${roomId}`);
+    } else {
+      setShowRoomInput(true);
+    }
+  };
 
-        <div className="space-y-4">
-          <button
+  return (
+    <section className="relative min-h-screen flex flex-col items-center justify-center px-6 overflow-hidden">
+      {/* Background Elements */}
+      <div className="absolute inset-0 -z-10">
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-primary/10 filter blur-3xl animate-pulse-soft"></div>
+        <div className="absolute bottom-1/3 right-1/4 w-80 h-80 rounded-full bg-purple-500/10 filter blur-3xl animate-pulse-soft" style={{ animationDelay: '1s' }}></div>
+      </div>
+      
+      {/* Radial gradient overlay */}
+      <div className="absolute inset-0 bg-gradient-radial from-transparent to-background -z-10"></div>
+      
+      {/* Content */}
+      <div className="max-w-4xl mx-auto text-center">
+        <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold tracking-tight text-white mb-6 animate-slide-up" style={{ animationDelay: '200ms' }}>
+          Converse
+        </h1>
+        
+        <p className="text-lg md:text-xl text-white/70 mb-10 max-w-2xl mx-auto animate-slide-up" style={{ animationDelay: '300ms' }}>
+          Connect with others through chat or video
+        </p>
+        
+        {/* Main action buttons */}
+        <div className="flex flex-col items-center justify-center gap-4 mb-16">
+          <ActionButton 
+            text="Chat" 
+            icon={MessageCircle} 
+            primary
+            className="w-full max-w-md bg-blue-600 hover:bg-blue-700"
             onClick={handleChatClick}
             disabled={isLoading}
-            className="w-full flex items-center justify-center py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-70"
-          >
-            <svg 
-              className="w-5 h-5 mr-2" 
-              fill="none" 
-              stroke="currentColor" 
-              viewBox="0 0 24 24" 
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth="2" 
-                d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-              ></path>
-            </svg>
-            Chat
-          </button>
-
-          <button
+          />
+          
+          <ActionButton 
+            text="Video" 
+            icon={Video}
+            className="w-full max-w-md bg-purple-600 hover:bg-purple-700"
             onClick={handleVideoClick}
             disabled={isLoading}
-            className="w-full flex items-center justify-center py-3 px-4 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-70"
-          >
-            <svg 
-              className="w-5 h-5 mr-2" 
-              fill="none" 
-              stroke="currentColor" 
-              viewBox="0 0 24 24" 
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth="2" 
-                d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-              ></path>
-            </svg>
-            Video
-          </button>
+          />
         </div>
-
-        <div className="pt-4 text-center text-sm text-gray-500 dark:text-gray-400">
-          <p>Or join an existing room</p>
-          <Link 
-            href="/join" 
-            className="mt-2 inline-block text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            Enter Room ID →
-          </Link>
+        
+        {/* Room ID section - below main buttons */}
+        <div className="mt-4 animate-fade-in" style={{ animationDelay: '500ms' }}>
+          <p className="text-white/70 mb-2">Or join an existing room</p>
+          
+          {showRoomInput ? (
+            <div className="flex items-center gap-2 justify-center">
+              <input
+                type="text"
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
+                placeholder="Enter room ID"
+                className="bg-white/5 border-white/10 text-white placeholder:text-white/40 focus:ring-primary w-48 sm:w-64 px-3 py-2 rounded-md"
+              />
+              <button 
+                onClick={handleEnterRoom} 
+                className="bg-white/5 text-white border border-white/10 hover:bg-white/10 px-4 py-2 rounded-md"
+              >
+                Join
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleEnterRoom}
+              className="text-blue-400 hover:text-blue-300 transition-colors flex items-center justify-center gap-1 mx-auto"
+            >
+              <span>Enter Room ID</span>
+              <span className="text-lg">→</span>
+            </button>
+          )}
         </div>
       </div>
-    </div>
+    </section>
   );
 }
