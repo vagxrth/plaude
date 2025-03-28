@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { generateRoomId } from "@/utils/roomUtils";
 import { MessageCircle, Video } from "lucide-react";
 import ActionButton from "@/components/ActionButton";
-
+import { InteractiveGridPattern } from "@/components/magicui/interactive-grid-pattern";
 export default function Home() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
@@ -33,7 +33,17 @@ export default function Home() {
   };
 
   return (
-    <section className="relative min-h-screen flex flex-col items-center justify-center px-6 overflow-hidden">
+    <section className="relative min-h-screen flex flex-col items-center justify-center px-6 overflow-hidden bg-background">
+      <div className="fixed inset-0 z-0 overflow-hidden">
+        <InteractiveGridPattern
+          squares={[80, 80]} 
+          width={30}
+          height={30}
+          className="fixed inset-0 w-[100vw] h-[100vh] opacity-20"
+          squaresClassName="stroke-foreground/[0.07] hover:fill-foreground/[0.3]"
+        />
+      </div>
+
       {/* Background Elements */}
       <div className="absolute inset-0 -z-10">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-primary/10 filter blur-3xl animate-pulse-soft"></div>
@@ -44,12 +54,12 @@ export default function Home() {
       <div className="absolute inset-0 bg-gradient-radial from-transparent to-background -z-10"></div>
       
       {/* Content */}
-      <div className="max-w-4xl mx-auto text-center">
-        <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold tracking-tight text-white mb-6 animate-slide-up" style={{ animationDelay: '200ms' }}>
+      <div className="max-w-4xl mx-auto text-center relative z-10">
+        <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold tracking-tight text-foreground mb-6 animate-slide-up" style={{ animationDelay: '200ms' }}>
           Converse
         </h1>
         
-        <p className="text-lg md:text-xl text-white/70 mb-10 max-w-2xl mx-auto animate-slide-up" style={{ animationDelay: '300ms' }}>
+        <p className="text-lg md:text-xl text-foreground/70 mb-10 max-w-2xl mx-auto animate-slide-up" style={{ animationDelay: '300ms' }}>
           Connect with others through chat or video
         </p>
         
@@ -75,7 +85,7 @@ export default function Home() {
         
         {/* Room ID section - below main buttons */}
         <div className="mt-4 animate-fade-in" style={{ animationDelay: '500ms' }}>
-          <p className="text-white/70 mb-2">Or join an existing room</p>
+          <p className="text-foreground/70 mb-2">Or join an existing room</p>
           
           {showRoomInput ? (
             <div className="flex items-center gap-2 justify-center">
@@ -84,11 +94,11 @@ export default function Home() {
                 value={roomId}
                 onChange={(e) => setRoomId(e.target.value)}
                 placeholder="Enter room ID"
-                className="bg-white/5 border-white/10 text-white placeholder:text-white/40 focus:ring-primary w-48 sm:w-64 px-3 py-2 rounded-md"
+                className="bg-foreground/5 border-foreground/10 text-foreground placeholder:text-foreground/40 focus:ring-primary w-48 sm:w-64 px-3 py-2 rounded-md"
               />
               <button 
                 onClick={handleEnterRoom} 
-                className="bg-white/5 text-white border border-white/10 hover:bg-white/10 px-4 py-2 rounded-md"
+                className="bg-foreground/5 text-foreground border border-foreground/10 hover:bg-foreground/10 px-4 py-2 rounded-md"
               >
                 Join
               </button>
