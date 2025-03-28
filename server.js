@@ -248,6 +248,76 @@ app.prepare().then(() => {
       }
     });
     
+    // WebRTC signaling events
+    
+    // Handle WebRTC offer
+    socket.on('webrtc-offer', ({ offer, receiverId, senderName, roomId }) => {
+      console.log(`[Server] WebRTC offer from ${senderName} to ${receiverId} in room ${roomId}`);
+      
+      try {
+        // Validate input
+        if (!roomId || !receiverId || !offer) {
+          throw new Error('Invalid WebRTC offer data');
+        }
+        
+        // Forward the offer to the intended recipient
+        io.to(receiverId).emit('webrtc-offer', {
+          offer,
+          senderId: socket.id,
+          senderName,
+        });
+      } catch (error) {
+        console.error('[Server] Error in webrtc-offer:', error);
+        socket.emit('server-error', { 
+          message: error instanceof Error ? error.message : 'Failed to send WebRTC offer'
+        });
+      }
+    });
+    
+    // Handle WebRTC answer
+    socket.on('webrtc-answer', ({ answer, receiverId, senderName, roomId }) => {
+      console.log(`[Server] WebRTC answer from ${senderName} to ${receiverId} in room ${roomId}`);
+      
+      try {
+        // Validate input
+        if (!roomId || !receiverId || !answer) {
+          throw new Error('Invalid WebRTC answer data');
+        }
+        
+        // Forward the answer to the intended recipient
+        io.to(receiverId).emit('webrtc-answer', {
+          answer,
+          senderId: socket.id,
+        });
+      } catch (error) {
+        console.error('[Server] Error in webrtc-answer:', error);
+        socket.emit('server-error', { 
+          message: error instanceof Error ? error.message : 'Failed to send WebRTC answer'
+        });
+      }
+    });
+    
+    // Handle ICE candidate exchange
+    socket.on('webrtc-ice-candidate', ({ candidate, receiverId, roomId }) => {
+      try {
+        // Validate input
+        if (!roomId || !receiverId || !candidate) {
+          throw new Error('Invalid ICE candidate data');
+        }
+        
+        // Forward the ICE candidate to the intended recipient
+        io.to(receiverId).emit('webrtc-ice-candidate', {
+          candidate,
+          senderId: socket.id,
+        });
+      } catch (error) {
+        console.error('[Server] Error in webrtc-ice-candidate:', error);
+        socket.emit('server-error', { 
+          message: error instanceof Error ? error.message : 'Failed to send ICE candidate'
+        });
+      }
+    });
+    
     // Handle disconnection
     socket.on('disconnect', (reason) => {
       console.log('[Server] Client disconnected:', socket.id, 'Reason:', reason);

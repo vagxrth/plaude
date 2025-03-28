@@ -1,29 +1,103 @@
 "use client";
 
-import { useState, use } from "react";
+import { useState, use, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import io, { Socket } from "socket.io-client";
+import VideoRoom from "@/components/VideoRoom";
 
-export default function VideoRoom({ params }: { params: Promise<{ roomId: string }> }) {
+export default function VideoRoomPage({ params }: { params: Promise<{ roomId: string }> }) {
   // Unwrap params using React.use()
   const unwrappedParams = use(params);
   const router = useRouter();
   const [userName, setUserName] = useState("");
   const [isJoined, setIsJoined] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Initialize socket connection
+  useEffect(() => {
+    const initSocket = () => {
+      try {
+        const newSocket = io({
+          path: '/socket.io',
+          transports: ['websocket', 'polling'],
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000,
+        });
+        
+        // Event handlers
+        newSocket.on('connect', () => {
+          console.log('Socket connected:', newSocket.id);
+          setSocket(newSocket);
+        });
+        
+        newSocket.on('connect_error', (error) => {
+          console.error('Socket connection error:', error);
+          setError('Failed to connect to server. Please try again.');
+        });
+        
+        newSocket.on('server-error', ({ message }) => {
+          console.error('Server error:', message);
+          setError(message);
+        });
+        
+        return newSocket;
+      } catch (error) {
+        console.error('Error initializing socket:', error);
+        setError('Failed to initialize connection. Please try again.');
+        return null;
+      }
+    };
+    
+    const socketInstance = initSocket();
+    
+    // Cleanup function
+    return () => {
+      if (socketInstance && socketInstance.connected) {
+        socketInstance.disconnect();
+      }
+    };
+  }, []);
 
   const handleJoinRoom = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!userName.trim()) return;
+    if (!userName.trim() || !socket) return;
     
     setIsJoining(true);
+    setError(null);
     
-    // Simulate joining
-    setTimeout(() => {
-      setIsJoined(true);
+    try {
+      // Join the room
+      socket.emit('join-room', {
+        roomId: unwrappedParams.roomId,
+        userName: userName.trim(),
+      });
+      
+      // Listen for join success
+      socket.once('join-success', () => {
+        setIsJoined(true);
+        setIsJoining(false);
+      });
+      
+      // Listen for errors (will be removed when component unmounts)
+      socket.once('server-error', ({ message }) => {
+        setError(message);
+        setIsJoining(false);
+      });
+    } catch (error) {
+      console.error('Error joining room:', error);
+      setError('Failed to join room. Please try again.');
       setIsJoining(false);
-    }, 1000);
+    }
+  };
+
+  const handleLeaveRoom = () => {
+    setIsJoined(false);
+    router.push("/");
   };
 
   if (!isJoined) {
@@ -36,6 +110,12 @@ export default function VideoRoom({ params }: { params: Promise<{ roomId: string
               Room ID: <span className="font-mono font-bold">{unwrappedParams.roomId}</span>
             </p>
           </div>
+
+          {error && (
+            <div className="p-3 bg-red-100 border border-red-200 text-red-700 dark:bg-red-900/30 dark:border-red-700 dark:text-red-400 rounded-md">
+              {error}
+            </div>
+          )}
 
           <form onSubmit={handleJoinRoom} className="space-y-4">
             <div>
@@ -56,7 +136,7 @@ export default function VideoRoom({ params }: { params: Promise<{ roomId: string
 
             <button
               type="submit"
-              disabled={isJoining || !userName.trim()}
+              disabled={isJoining || !userName.trim() || !socket}
               className="w-full flex items-center justify-center py-2 px-4 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-70"
             >
               {isJoining ? "Joining..." : "Join Video"}
@@ -86,45 +166,25 @@ export default function VideoRoom({ params }: { params: Promise<{ roomId: string
               Video Room: <span className="font-mono">{unwrappedParams.roomId}</span>
             </h1>
           </div>
-          <button
-            onClick={() => router.push("/")}
-            className="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-          >
-            Leave Room
-          </button>
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            <span className="inline-flex items-center">
+              <span className="h-2 w-2 rounded-full bg-green-500 mr-2"></span>
+              Connected as <span className="font-semibold ml-1">{userName}</span>
+            </span>
+          </div>
         </div>
       </header>
 
-      {/* Main content */}
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="text-center max-w-md mx-auto">
-          <div className="mb-4 p-8 bg-purple-100 dark:bg-purple-900/20 rounded-lg">
-            <svg 
-              className="w-16 h-16 mx-auto text-purple-600 dark:text-purple-400" 
-              fill="none" 
-              stroke="currentColor" 
-              viewBox="0 0 24 24" 
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth="2" 
-                d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-              ></path>
-            </svg>
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-            Video Chat Functionality
-          </h2>
-          <p className="text-gray-600 dark:text-gray-300 mb-4">
-            This is a placeholder for the video chat functionality. In a real implementation, this would include WebRTC for peer-to-peer video streaming.
-          </p>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Room ID: <span className="font-mono font-semibold">{unwrappedParams.roomId}</span> | 
-            User: <span className="font-semibold">{userName}</span>
-          </p>
-        </div>
+      {/* Main content with video room */}
+      <div className="flex-1 overflow-hidden">
+        {socket && (
+          <VideoRoom 
+            socket={socket} 
+            roomId={unwrappedParams.roomId} 
+            userName={userName} 
+            onLeaveRoom={handleLeaveRoom} 
+          />
+        )}
       </div>
     </div>
   );
