@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, use, useEffect } from "react";
+import { useState, use, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import io, { Socket } from "socket.io-client";
@@ -15,54 +15,109 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
   const [isJoining, setIsJoining] = useState(false);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState(true);
   
   // Initialize socket connection
   useEffect(() => {
-    const initSocket = () => {
-      try {
-        const newSocket = io({
-          path: '/socket.io',
-          transports: ['websocket', 'polling'],
-          reconnection: true,
-          reconnectionAttempts: 5,
-          reconnectionDelay: 1000,
-        });
-        
-        // Event handlers
-        newSocket.on('connect', () => {
-          console.log('Socket connected:', newSocket.id);
-          setSocket(newSocket);
-        });
-        
-        newSocket.on('connect_error', (error) => {
-          console.error('Socket connection error:', error);
-          setError('Failed to connect to server. Please try again.');
-        });
-        
-        newSocket.on('server-error', ({ message }) => {
-          console.error('Server error:', message);
-          setError(message);
-        });
-        
-        return newSocket;
-      } catch (error) {
-        console.error('Error initializing socket:', error);
-        setError('Failed to initialize connection. Please try again.');
-        return null;
-      }
-    };
+    console.log('Initializing socket connection...');
+    setIsConnecting(true);
+    let socketInstance: Socket | null = null;
     
-    const socketInstance = initSocket();
-    
-    // Cleanup function
-    return () => {
-      if (socketInstance && socketInstance.connected) {
-        socketInstance.disconnect();
-      }
-    };
+    try {
+      // Socket.IO configuration
+      socketInstance = io({
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        timeout: 10000,
+      });
+      
+      // Debug all socket events
+      socketInstance.onAny((event, ...args) => {
+        console.log('Socket event received:', event, args);
+      });
+      
+      // Event handlers
+      socketInstance.on('connect', () => {
+        console.log('Socket connected successfully with ID:', socketInstance?.id);
+        setSocket(socketInstance);
+        setIsConnecting(false);
+        setError(null);
+      });
+      
+      socketInstance.on('connect_error', (err) => {
+        console.error('Socket connection error:', err);
+        setError('Failed to connect to server. Please try again.');
+        setIsConnecting(false);
+      });
+      
+      socketInstance.on('connect_timeout', () => {
+        console.error('Socket connection timeout');
+        setError('Connection timed out. Please try again.');
+        setIsConnecting(false);
+      });
+      
+      socketInstance.on('disconnect', (reason) => {
+        console.log('Socket disconnected:', reason);
+        if (reason === 'io server disconnect') {
+          // Server disconnected us, reconnect
+          socketInstance?.connect();
+        }
+        // Don't set error for normal disconnects during page navigation
+      });
+      
+      socketInstance.on('server-error', ({ message }) => {
+        console.error('Server error:', message);
+        setError(message);
+      });
+      
+      // Set a timeout for connection
+      const timeoutId = setTimeout(() => {
+        if (!socketInstance?.connected) {
+          console.error('Socket connection timed out');
+          setError('Connection timed out. Please try again.');
+          setIsConnecting(false);
+        }
+      }, 10000);
+      
+      return () => {
+        clearTimeout(timeoutId);
+        if (socketInstance) {
+          console.log('Disconnecting socket');
+          // Remove all listeners to prevent memory leaks
+          socketInstance.removeAllListeners();
+          socketInstance.disconnect();
+        }
+      };
+    } catch (error) {
+      console.error('Error initializing socket:', error);
+      setError('Failed to initialize connection. Please try again.');
+      setIsConnecting(false);
+      return () => {};
+    }
   }, []);
 
-  const handleJoinRoom = (e: React.FormEvent) => {
+  // Check for microphone/camera permissions first
+  const checkMediaPermissions = useCallback(async () => {
+    try {
+      console.log('Checking media permissions...');
+      await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+        .then(stream => {
+          // Stop all tracks immediately, we just needed the permission check
+          stream.getTracks().forEach(track => track.stop());
+          return true;
+        });
+      console.log('Media permissions granted');
+      return true;
+    } catch (err) {
+      console.error('Media permission error:', err);
+      return false;
+    }
+  }, []);
+
+  const handleJoinRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!userName.trim() || !socket) return;
@@ -71,6 +126,15 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
     setError(null);
     
     try {
+      // Check for permissions first
+      const hasPermissions = await checkMediaPermissions();
+      
+      if (!hasPermissions) {
+        setError('Please allow access to your camera and microphone to join the video call.');
+        setIsJoining(false);
+        return;
+      }
+      
       // Join the room
       socket.emit('join-room', {
         roomId: unwrappedParams.roomId,
@@ -79,15 +143,31 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
       
       // Listen for join success
       socket.once('join-success', () => {
+        console.log('Join success received');
         setIsJoined(true);
         setIsJoining(false);
       });
       
       // Listen for errors (will be removed when component unmounts)
       socket.once('server-error', ({ message }) => {
+        console.error('Server error during join:', message);
         setError(message);
         setIsJoining(false);
       });
+      
+      // Set a timeout for join response
+      const timeoutId = setTimeout(() => {
+        console.error('Join room timed out');
+        setError('Failed to join room. Please try again.');
+        setIsJoining(false);
+        socket.off('join-success');
+        socket.off('server-error');
+      }, 10000);
+      
+      // Clean up timeout when success or error comes back
+      socket.once('join-success', () => clearTimeout(timeoutId));
+      socket.once('server-error', () => clearTimeout(timeoutId));
+      
     } catch (error) {
       console.error('Error joining room:', error);
       setError('Failed to join room. Please try again.');
@@ -99,6 +179,17 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
     setIsJoined(false);
     router.push("/");
   };
+  
+  if (isConnecting) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-background to-background/80">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600 dark:text-gray-300">Connecting to server...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isJoined) {
     return (
@@ -132,6 +223,10 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
                 autoComplete="off"
                 required
               />
+            </div>
+
+            <div className="text-sm text-gray-600 dark:text-gray-400">
+              <p>You&apos;ll need to allow access to your camera and microphone to join the video call.</p>
             </div>
 
             <button

@@ -37,21 +37,140 @@ const videoContext: VideoContext = {
 // Initialize local media stream
 export const initLocalStream = async (videoElement: HTMLVideoElement): Promise<MediaStream> => {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: true,
+    console.log('Attempting to access media devices...');
+    
+    // Validate video element
+    if (!videoElement) {
+      console.error('Video element is null or undefined');
+      throw new Error('Video element not available. Please refresh the page and try again.');
+    }
+    
+    console.log('Video element properties:', {
+      nodeName: videoElement.nodeName,
+      id: videoElement.id,
+      muted: videoElement.muted,
+      autoplay: videoElement.autoplay,
+      playsInline: videoElement.playsInline
     });
     
+    // Check if mediaDevices API is available
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.error('MediaDevices API not supported in this browser');
+      throw new Error('Your browser does not support video calls. Please try a different browser.');
+    }
+
+    // Try with more specific constraints
+    const constraints = {
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      },
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        facingMode: 'user'
+      }
+    };
+    
+    console.log('Requesting media with constraints:', constraints);
+    
+    // Request permissions separately first
+    try {
+      console.log('Checking browser permissions...');
+      
+      // First request just audio
+      const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('Audio permission granted');
+      
+      // Stop audio tracks immediately
+      audioStream.getTracks().forEach(track => track.stop());
+      
+      // Then request just video
+      const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      console.log('Video permission granted');
+      
+      // Stop video tracks immediately
+      videoStream.getTracks().forEach(track => track.stop());
+    } catch (permErr) {
+      console.error('Permission error:', permErr);
+      if (permErr instanceof DOMException) {
+        if (permErr.name === 'NotAllowedError' || permErr.name === 'PermissionDeniedError') {
+          throw new Error('Camera and microphone access denied. Please allow access in your browser settings.');
+        }
+      }
+      
+      // Rethrow other permission errors
+      throw permErr;
+    }
+    
+    // Now request the full stream with our constraints
+    console.log('Requesting full stream...');
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    console.log('Media access granted:', stream.getTracks().map(t => `${t.kind}:${t.label}`));
+    
+    // Ensure stream has tracks
+    if (stream.getTracks().length === 0) {
+      throw new Error('No media tracks available. Please check your camera and microphone.');
+    }
+    
+    // Store in context
     videoContext.localStream = stream;
     videoContext.localStreamElement = videoElement;
     
     // Display local stream
-    videoElement.srcObject = stream;
+    try {
+      console.log('Attaching stream to video element');
+      videoElement.srcObject = stream;
+      
+      // Set up video loaded event
+      videoElement.onloadedmetadata = () => {
+        console.log('Video element metadata loaded, attempting to play');
+        videoElement.play()
+          .then(() => console.log('Local video started playing'))
+          .catch(e => {
+            console.error('Error playing video:', e);
+            // Try playing again with user interaction or muted
+            videoElement.muted = true;
+            
+            // We could handle autoplay policy restrictions here
+            console.log('Video playing failed, video has been muted to try again');
+          });
+      };
+      
+      // Set up error handler
+      videoElement.onerror = (event) => {
+        console.error('Video element error:', event);
+      };
+    } catch (streamErr) {
+      console.error('Error attaching stream to video element:', streamErr);
+      throw new Error('Failed to display local video. Please refresh and try again.');
+    }
     
     return stream;
   } catch (error) {
     console.error('Error accessing media devices:', error);
-    throw new Error('Could not access camera or microphone');
+    
+    // Provide a more specific error message if possible
+    if (error instanceof DOMException) {
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        throw new Error('Camera and microphone access denied. Please allow access in your browser settings.');
+      } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+        throw new Error('No camera or microphone found. Please connect a device and try again.');
+      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+        throw new Error('Your camera or microphone is already in use by another application.');
+      } else if (error.name === 'OverconstrainedError') {
+        throw new Error('Could not find a suitable camera. Try using a different device.');
+      } else if (error.name === 'TypeError' && error.message.includes('videoElement is null')) {
+        throw new Error('Video initialization failed. Please refresh the page and try again.');
+      }
+    }
+    
+    if (error instanceof Error) {
+      throw error; // Just rethrow specific errors we've already created
+    }
+    
+    throw new Error('Could not access camera or microphone. Please check your permissions and try again.');
   }
 };
 
@@ -292,4 +411,4 @@ export const toggleVideo = () => {
     }
   }
   return false;
-}; 
+};
