@@ -3,12 +3,6 @@ import { Socket } from 'socket.io-client';
 import VideoStream from './VideoStream';
 import VideoControls from './VideoControls';
 import { initLocalStream, initializeWebRTC, toggleAudio, toggleVideo, cleanupConnections } from '../lib/webrtc';
-
-interface User {
-  id: string;
-  name: string;
-}
-
 interface RemoteStream {
   userId: string;
   userName: string;
@@ -235,8 +229,8 @@ const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) =>
           </svg>
           <h3 className="text-lg font-medium text-red-800 dark:text-red-200 mt-3">{error}</h3>
           <p className="mt-2 text-red-700 dark:text-red-300">
-            Please ensure your camera and microphone are connected and you've granted permission in your browser.
-          </p>
+            Please ensure your camera and microphone are connected and you&apos;ve granted permission in your browser.
+          </p>  
           <div className="mt-4 flex flex-col gap-2">
             <button 
               onClick={() => {
