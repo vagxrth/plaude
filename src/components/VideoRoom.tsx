@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Socket } from 'socket.io-client';
 import VideoStream from './VideoStream';
 import VideoControls from './VideoControls';
@@ -30,51 +30,52 @@ const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) =>
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
+  const [videoInitAttempts, setVideoInitAttempts] = useState(0);
+  const videoContainerRef = useRef<HTMLDivElement>(null);
   
-  // Create a video element immediately on component mount
-  useEffect(() => {
-    // Create video element if it doesn't exist
-    if (!localVideoRef.current) {
-      const videoElement = document.createElement('video');
-      videoElement.autoplay = true;
-      videoElement.playsInline = true;
-      videoElement.muted = true;
-      
-      localVideoRef.current = videoElement;
-      console.log('Created video element programmatically');
+  // Function to create a video element
+  const createVideoElement = useCallback(() => {
+    if (localVideoRef.current) {
+      console.log('Video element already exists, reusing it');
+      return localVideoRef.current;
     }
+    
+    console.log('Creating new video element');
+    const videoElement = document.createElement('video');
+    videoElement.id = 'local-video-element';
+    videoElement.autoplay = true;
+    videoElement.playsInline = true;
+    videoElement.muted = true;
+    
+    // Store the reference
+    localVideoRef.current = videoElement;
+    
+    return videoElement;
   }, []);
   
   // Initialize local stream and WebRTC connections
   useEffect(() => {
     console.log('VideoRoom component mounted, setting up media...');
     let mounted = true;
+    let retryTimeoutId: NodeJS.Timeout;
     
     const setupMedia = async () => {
       try {
         if (!mounted) return;
         
         setIsLoading(true);
-        console.log('Video element ref:', localVideoRef.current ? 'exists' : 'missing');
         
-        // Ensure we have a video element
-        if (!localVideoRef.current) {
-          const videoElement = document.createElement('video');
-          videoElement.autoplay = true;
-          videoElement.playsInline = true;
-          videoElement.muted = true;
-          
-          localVideoRef.current = videoElement;
-          console.log('Created fallback video element');
-        }
+        // Create and prepare video element if needed
+        const videoElement = createVideoElement();
+        console.log('Video element prepared:', videoElement.id);
         
         try {
           // Ensure browser permissions prompt appears
           await new Promise(resolve => setTimeout(resolve, 500));
           
           // Get access to camera and microphone
-          console.log('Calling initLocalStream with video element:', localVideoRef.current);
-          const stream = await initLocalStream(localVideoRef.current);
+          console.log('Calling initLocalStream with video element');
+          const stream = await initLocalStream(videoElement);
           console.log('Local stream obtained:', stream.id);
           
           if (!mounted) return;
@@ -90,8 +91,27 @@ const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) =>
         } catch (mediaError) {
           console.error('Media access error:', mediaError);
           if (!mounted) return;
-          setError(mediaError instanceof Error ? mediaError.message : 'Could not access camera or microphone');
-          setIsLoading(false);
+          
+          // Increment attempt counter
+          const newAttemptCount = videoInitAttempts + 1;
+          setVideoInitAttempts(newAttemptCount);
+          
+          if (newAttemptCount < 3) {
+            console.log(`Retrying media access (attempt ${newAttemptCount + 1})`);
+            // Clear video element and retry after a short delay
+            if (localVideoRef.current) {
+              localVideoRef.current.srcObject = null;
+            }
+            
+            retryTimeoutId = setTimeout(() => {
+              if (mounted) {
+                setupMedia();
+              }
+            }, 2000);
+          } else {
+            setError(mediaError instanceof Error ? mediaError.message : 'Could not access camera or microphone');
+            setIsLoading(false);
+          }
         }
       } catch (err) {
         if (!mounted) return;
@@ -104,7 +124,7 @@ const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) =>
     // Give a short delay to ensure DOM is ready
     const timeoutId = setTimeout(() => {
       setupMedia();
-    }, 100);
+    }, 300);
     
     // Listen for new remote streams
     const handleNewStream = (event: Event) => {
@@ -144,11 +164,12 @@ const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) =>
     return () => {
       mounted = false;
       clearTimeout(timeoutId);
+      clearTimeout(retryTimeoutId);
       window.removeEventListener('webrtc-stream-added', handleNewStream);
       window.removeEventListener('webrtc-stream-removed', handleRemovedStream);
       cleanupConnections();
     };
-  }, [socket, roomId, userName]);
+  }, [socket, roomId, userName, createVideoElement, videoInitAttempts]);
   
   // Handle toggle audio
   const handleToggleAudio = () => {
@@ -221,17 +242,14 @@ const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) =>
               onClick={() => {
                 setError(null);
                 setIsLoading(true);
-                if (!localVideoRef.current) {
-                  const videoElement = document.createElement('video');
-                  videoElement.autoplay = true;
-                  videoElement.playsInline = true;
-                  videoElement.muted = true;
-                  localVideoRef.current = videoElement;
-                }
+                setVideoInitAttempts(0);
+                
+                // Create fresh video element
+                const videoElement = createVideoElement();
                 
                 setTimeout(() => {
-                  if (localVideoRef.current) {
-                    initLocalStream(localVideoRef.current)
+                  if (videoElement) {
+                    initLocalStream(videoElement)
                       .then(stream => {
                         setLocalStream(stream);
                         initializeWebRTC(socket, roomId, userName);
@@ -264,16 +282,18 @@ const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) =>
   }
   
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" ref={videoContainerRef}>
       {/* Video grid */}
       <div className={`flex-1 grid ${getGridClass()} gap-4 p-4 overflow-auto`}>
         {/* Local stream */}
-        <VideoStream
-          stream={localStream}
-          userName={userName}
-          muted={true}
-          isLocal={true}
-        />
+        {localStream && (
+          <VideoStream
+            stream={localStream}
+            userName={userName}
+            muted={true}
+            isLocal={true}
+          />
+        )}
         
         {/* Remote streams */}
         {remoteStreams.map((remote) => (
@@ -285,6 +305,16 @@ const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) =>
             isLocal={false}
           />
         ))}
+        
+        {/* Show placeholder if no streams */}
+        {!localStream && remoteStreams.length === 0 && (
+          <div className="flex items-center justify-center bg-gray-900 rounded-lg aspect-video">
+            <div className="text-center text-gray-400">
+              <div className="animate-pulse text-4xl mb-2">🎥</div>
+              <p>Starting video...</p>
+            </div>
+          </div>
+        )}
       </div>
       
       {/* Video controls */}

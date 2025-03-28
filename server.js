@@ -309,11 +309,37 @@ app.prepare().then(() => {
         io.to(receiverId).emit('webrtc-ice-candidate', {
           candidate,
           senderId: socket.id,
+          senderName: getUserName(socket.id, roomId)
         });
       } catch (error) {
         console.error('[Server] Error in webrtc-ice-candidate:', error);
         socket.emit('server-error', { 
           message: error instanceof Error ? error.message : 'Failed to send ICE candidate'
+        });
+      }
+    });
+    
+    // Handle WebRTC renegotiation request
+    socket.on('webrtc-renegotiate', ({ receiverId, roomId }) => {
+      console.log(`[Server] WebRTC renegotiation request from ${socket.id} to ${receiverId} in room ${roomId}`);
+      
+      try {
+        // Validate input
+        if (!roomId || !receiverId) {
+          throw new Error('Invalid renegotiation data');
+        }
+        
+        const senderName = getUserName(socket.id, roomId);
+        
+        // Forward the renegotiation request to the intended recipient
+        io.to(receiverId).emit('webrtc-renegotiate', {
+          senderId: socket.id,
+          senderName
+        });
+      } catch (error) {
+        console.error('[Server] Error in webrtc-renegotiate:', error);
+        socket.emit('server-error', { 
+          message: error instanceof Error ? error.message : 'Failed to send renegotiation request'
         });
       }
     });
@@ -354,3 +380,12 @@ app.prepare().then(() => {
     console.log(`> Server ready on http://localhost:${PORT}`);
   });
 });
+
+// Helper function to get a user's name from a room
+function getUserName(userId, roomId) {
+  if (rooms[roomId]) {
+    const user = rooms[roomId].users.find(u => u.id === userId);
+    return user ? user.name : 'Unknown User';
+  }
+  return 'Unknown User';
+}
