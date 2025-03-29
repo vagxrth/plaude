@@ -68,9 +68,10 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
         // Don't set error for normal disconnects during page navigation
       });
       
+      // General error handler for server errors
       socketInstance.on('server-error', ({ message }) => {
         console.error('Server error:', message);
-        setError(message);
+        setError(`Server error: ${message}`);
       });
       
       // Set a timeout for connection
@@ -135,11 +136,9 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
         return;
       }
       
-      // Join the room
-      socket.emit('join-room', {
-        roomId: unwrappedParams.roomId,
-        userName: userName.trim(),
-      });
+      // Remove any existing listeners for these events to prevent duplicates
+      socket.off('join-success');
+      socket.off('server-error');
       
       // Listen for join success
       socket.once('join-success', () => {
@@ -151,7 +150,7 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
       // Listen for errors (will be removed when component unmounts)
       socket.once('server-error', ({ message }) => {
         console.error('Server error during join:', message);
-        setError(message);
+        setError(`Unable to join: ${message}`);
         setIsJoining(false);
       });
       
@@ -167,6 +166,12 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
       // Clean up timeout when success or error comes back
       socket.once('join-success', () => clearTimeout(timeoutId));
       socket.once('server-error', () => clearTimeout(timeoutId));
+      
+      // Join the room
+      socket.emit('join-room', {
+        roomId: unwrappedParams.roomId,
+        userName: userName.trim(),
+      });
       
     } catch (error) {
       console.error('Error joining room:', error);

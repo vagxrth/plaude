@@ -16,16 +16,17 @@ interface VideoRoomProps {
   onLeaveRoom: () => void;
 }
 
-const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) => {
+export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
-  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
+  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  const [videoInitAttempts, setVideoInitAttempts] = useState(0);
   const videoContainerRef = useRef<HTMLDivElement>(null);
+  const [isLocalMediaReady, setIsLocalMediaReady] = useState(false);
+  const [cleanup, setCleanup] = useState<() => void | undefined>(() => () => {});
   
   // Function to create a video element
   const createVideoElement = useCallback(() => {
@@ -51,119 +52,160 @@ const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) =>
   useEffect(() => {
     console.log('VideoRoom component mounted, setting up media...');
     let mounted = true;
-    let retryTimeoutId: NodeJS.Timeout;
     
-    const setupMedia = async () => {
-      try {
-        if (!mounted) return;
-        
-        setIsLoading(true);
-        
-        // Create and prepare video element if needed
-        const videoElement = createVideoElement();
-        console.log('Video element prepared:', videoElement.id);
-        
-        try {
-          // Ensure browser permissions prompt appears
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          // Get access to camera and microphone
-          console.log('Calling initLocalStream with video element');
-          const stream = await initLocalStream(videoElement);
-          console.log('Local stream obtained:', stream.id);
-          
-          if (!mounted) return;
-          
-          // Set the local stream state
-          setLocalStream(stream);
-          
-          // Initialize WebRTC with socket
-          console.log('Initializing WebRTC with socket...');
-          initializeWebRTC(socket, roomId, userName);
-          
-          setIsLoading(false);
-        } catch (mediaError) {
-          console.error('Media access error:', mediaError);
-          if (!mounted) return;
-          
-          // Increment attempt counter
-          const newAttemptCount = videoInitAttempts + 1;
-          setVideoInitAttempts(newAttemptCount);
-          
-          if (newAttemptCount < 3) {
-            console.log(`Retrying media access (attempt ${newAttemptCount + 1})`);
-            // Clear video element and retry after a short delay
-            if (localVideoRef.current) {
-              localVideoRef.current.srcObject = null;
-            }
-            
-            retryTimeoutId = setTimeout(() => {
-              if (mounted) {
-                setupMedia();
-              }
-            }, 2000);
-          } else {
-            setError(mediaError instanceof Error ? mediaError.message : 'Could not access camera or microphone');
-            setIsLoading(false);
+    // Event handler for a new remote stream
+    const handleNewStream = (event: CustomEvent) => {
+      const { userId, userName, stream } = event.detail;
+      
+      console.log(`New remote stream received from ${userName} (${userId})`);
+      if (mounted) {
+        setRemoteStreams(prev => {
+          // Only add if not already in the list
+          if (!prev.some(s => s.userId === userId)) {
+            return [...prev, { userId, userName, stream }];
           }
-        }
-      } catch (err) {
-        if (!mounted) return;
-        console.error('Error in setupMedia:', err);
-        setError('Could not access camera or microphone. Please check your permissions.');
-        setIsLoading(false);
+          return prev;
+        });
       }
     };
     
-    // Give a short delay to ensure DOM is ready
-    const timeoutId = setTimeout(() => {
-      setupMedia();
-    }, 300);
+    // Event handler for when a remote stream is removed
+    const handleRemovedStream = (event: CustomEvent) => {
+      const { userId } = event.detail;
+      
+      console.log(`Remote stream removed for user ${userId}`);
+      if (mounted) {
+        setRemoteStreams(prev => prev.filter(stream => stream.userId !== userId));
+      }
+    };
     
-    // Listen for new remote streams
-    const handleNewStream = (event: Event) => {
-      if (!mounted) return;
-      const customEvent = event as CustomEvent<{ userId: string; userName: string; stream: MediaStream }>;
-      const { userId, userName, stream } = customEvent.detail;
-      
-      console.log('New remote stream received:', userId, userName);
-      
-      setRemoteStreams(prev => {
-        // Check if we already have this stream
-        const exists = prev.some(s => s.userId === userId);
-        if (exists) {
-          return prev.map(s => s.userId === userId ? { ...s, stream } : s);
-        } else {
-          return [...prev, { userId, userName, stream }];
+    // Function to get local media stream with specified constraints
+    const getLocalStream = async (videoEnabled: boolean, audioEnabled: boolean) => {
+      try {
+        const constraints = {
+          video: videoEnabled,
+          audio: audioEnabled
+        };
+        
+        console.log('Requesting local media with constraints:', constraints);
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        console.log('Successfully obtained local media stream');
+        
+        // Ensure tracks are enabled according to user preferences
+        stream.getVideoTracks().forEach(track => {
+          track.enabled = videoEnabled;
+        });
+        
+        stream.getAudioTracks().forEach(track => {
+          track.enabled = audioEnabled;
+        });
+        
+        return stream;
+      } catch (error) {
+        console.error('Error getting local stream:', error);
+        throw error;
+      }
+    };
+    
+    // Setup function for media and connections
+    const setupMedia = async () => {
+      try {
+        console.log('Setting up local media stream');
+        
+        // Initialize WebRTC with current socket
+        const rtcInstance = initializeWebRTC(socket, roomId, userName);
+        
+        // Set cleanup function to be called on unmount
+        setCleanup(() => rtcInstance.cleanup);
+        
+        // Make three attempts to set up media with 1s delays between
+        let stream;
+        let attempts = 0;
+        
+        while (!stream && attempts < 3 && mounted) {
+          try {
+            attempts++;
+            console.log(`Local media stream setup attempt ${attempts}`);
+            stream = await getLocalStream(isVideoEnabled, isAudioEnabled);
+          } catch (error) {
+            console.error(`Error getting local stream (attempt ${attempts}):`, error);
+            if (attempts < 3) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          }
         }
-      });
+        
+        if (!stream) {
+          throw new Error('Failed to get local media stream after multiple attempts');
+        }
+        
+        // Handle when other users join 
+        const handleUserJoined = (data: { user: { id: string, name: string }, users: Array<{ id: string, name: string }> }) => {
+          const { user } = data;
+          console.log(`User joined: ${user.name} (${user.id})`);
+          
+          // Emit ready status to ensure the user knows we're here
+          socket.emit('user-ready', { userId: user.id, roomId });
+          
+          // If we already have our localStream, notify for immediate connection
+          if (isLocalMediaReady) {
+            console.log(`Sending media-ready to new user ${user.name}`);
+            socket.emit('user-media-ready', { userId: user.id, roomId });
+          }
+        };
+        
+        socket.on('user-joined', handleUserJoined);
+        
+        // Listen for WebRTC-related events
+        window.addEventListener('webrtc-stream-added', handleNewStream as EventListener);
+        window.addEventListener('webrtc-stream-removed', handleRemovedStream as EventListener);
+        
+        if (mounted) {
+          setLocalStream(stream);
+          setIsLocalMediaReady(true);
+          setIsLoading(false);
+        }
+        
+        // Dispatch a global event that we have a media stream ready
+        window.dispatchEvent(new CustomEvent('local-media-ready'));
+      } catch (error) {
+        console.error('Failed to setup media:', error);
+        setError('Could not access camera or microphone. Please check permissions and try again.');
+        if (mounted) {
+          setIsLoading(false);
+        }
+      }
     };
     
-    // Listen for removed streams
-    const handleRemovedStream = (event: Event) => {
-      if (!mounted) return;
-      const customEvent = event as CustomEvent<{ userId: string }>;
-      const { userId } = customEvent.detail;
-      
-      console.log('Remote stream removed:', userId);
-      
-      setRemoteStreams(prev => prev.filter(s => s.userId !== userId));
-    };
-    
-    // Add event listeners
-    window.addEventListener('webrtc-stream-added', handleNewStream);
-    window.addEventListener('webrtc-stream-removed', handleRemovedStream);
+    // Start setup process
+    setupMedia();
     
     // Clean up function
     return () => {
       mounted = false;
-      clearTimeout(timeoutId);
-      clearTimeout(retryTimeoutId);
-      window.removeEventListener('webrtc-stream-added', handleNewStream);
-      window.removeEventListener('webrtc-stream-removed', handleRemovedStream);
-      cleanupConnections();
+      
+      // Remove event listeners
+      window.removeEventListener('webrtc-stream-added', handleNewStream as EventListener);
+      window.removeEventListener('webrtc-stream-removed', handleRemovedStream as EventListener);
+      
+      // Run the cleanup function to close connections
+      if (cleanup) {
+        cleanup();
+      }
+      
+      // Remove socket listeners
+      socket.off('user-joined');
     };
-  }, [socket, roomId, userName, createVideoElement, videoInitAttempts]);
+  }, [socket, roomId, userName, isVideoEnabled, isAudioEnabled]);
+  
+  // Effect to connect with existing users when our media is ready
+  useEffect(() => {
+    if (isLocalMediaReady) {
+      // Broadcast that we're ready to establish WebRTC connections
+      console.log('Broadcasting media-ready to room');
+      socket.emit('user-media-ready', { roomId });
+    }
+  }, [isLocalMediaReady, socket, roomId]);
   
   // Handle toggle audio
   const handleToggleAudio = () => {
@@ -185,6 +227,10 @@ const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) =>
     // Notify the server that we're leaving
     socket.emit('leave-room', { roomId, userName });
     
+    // Reset state
+    setLocalStream(null);
+    setRemoteStreams([]);
+    
     // Call the parent component's handler
     onLeaveRoom();
   };
@@ -205,6 +251,18 @@ const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) =>
       return 'grid-cols-4';
     }
   };
+  
+  const handleRetryConnection = useCallback(() => {
+    if (localStream && remoteStreams.length === 0) {
+      console.log('Retrying connection to peers in room');
+      
+      // Clean up old connections
+      cleanupConnections();
+      
+      // Initialize WebRTC again
+      initializeWebRTC(socket, roomId, userName);
+    }
+  }, [localStream, remoteStreams.length, socket, roomId, userName]);
   
   if (isLoading) {
     return (
@@ -236,7 +294,6 @@ const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) =>
               onClick={() => {
                 setError(null);
                 setIsLoading(true);
-                setVideoInitAttempts(0);
                 
                 // Create fresh video element
                 const videoElement = createVideoElement();
@@ -311,6 +368,21 @@ const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) =>
         )}
       </div>
       
+      {/* Connection retry button - only show if we have local stream but no remote streams after 10 sec */}
+      {localStream && remoteStreams.length === 0 && (
+        <div className="text-center p-2">
+          <button
+            onClick={handleRetryConnection}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+          >
+            Retry Connection
+          </button>
+          <p className="text-sm text-gray-500 mt-1">
+            Waiting for other participants...
+          </p>
+        </div>
+      )}
+      
       {/* Video controls */}
       <div className="p-4">
         <VideoControls
@@ -323,6 +395,6 @@ const VideoRoom = ({ socket, roomId, userName, onLeaveRoom }: VideoRoomProps) =>
       </div>
     </div>
   );
-};
+}
 
 export default VideoRoom; 

@@ -248,6 +248,27 @@ app.prepare().then(() => {
       }
     });
     
+    // Handle connection readiness - a user is ready to receive connection offers
+    socket.on('ready-for-connections', ({ roomId }) => {
+      // Keeping event handler as a no-op to maintain compatibility
+      console.log(`[Server] User ${socket.id} is ready for connections in room ${roomId} (DEPRECATED)`);
+      // No action needed - keeping for compatibility
+    });
+    
+    // Handle media ready event - user has media initialized and ready to share
+    socket.on('media-ready', ({ roomId, userName }) => {
+      // Keeping event handler as a no-op to maintain compatibility
+      console.log(`[Server] User ${userName} (${socket.id}) has media ready in room ${roomId} (DEPRECATED)`);
+      // No action needed - keeping for compatibility
+    });
+    
+    // Handle media error event
+    socket.on('media-error', ({ roomId, userName, error }) => {
+      // Keeping event handler as a no-op to maintain compatibility
+      console.log(`[Server] User ${userName} (${socket.id}) had media error in room ${roomId}: ${error} (DEPRECATED)`);
+      // No action needed - keeping for compatibility
+    });
+    
     // WebRTC signaling events
     
     // Handle WebRTC offer
@@ -255,9 +276,28 @@ app.prepare().then(() => {
       console.log(`[Server] WebRTC offer from ${senderName} to ${receiverId} in room ${roomId}`);
       
       try {
-        // Validate input
-        if (!roomId || !receiverId || !offer) {
-          throw new Error('Invalid WebRTC offer data');
+        // Validate input with more detailed error reporting
+        if (!roomId) {
+          throw new Error('Missing roomId in WebRTC offer');
+        }
+        
+        if (!receiverId) {
+          throw new Error('Missing receiverId in WebRTC offer');
+        }
+        
+        if (!offer) {
+          throw new Error('Missing offer data in WebRTC offer');
+        }
+        
+        // Check if receiver is in the specified room
+        const room = rooms[roomId];
+        if (!room) {
+          throw new Error(`Room ${roomId} not found`);
+        }
+        
+        const receiverInRoom = room.users.some(user => user.id === receiverId);
+        if (!receiverInRoom) {
+          throw new Error(`Receiver ${receiverId} is not in room ${roomId}`);
         }
         
         // Forward the offer to the intended recipient

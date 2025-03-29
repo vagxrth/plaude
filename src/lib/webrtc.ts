@@ -386,6 +386,12 @@ export const initializeWebRTC = (
     console.log(`Received offer from ${senderName} (${senderId})`);
     
     try {
+      // Validate the offer data
+      if (!offer || !offer.sdp || !offer.type) {
+        console.error('Invalid offer received:', offer);
+        return;
+      }
+      
       // Check if we already have a connection for this user
       let peerConnection = videoContext.peerConnections.get(senderId)?.connection;
       
@@ -405,27 +411,101 @@ export const initializeWebRTC = (
       // Check if we're in the correct signaling state to set a remote offer
       if (peerConnection.signalingState !== 'stable') {
         console.warn(`Peer connection for ${senderName} is in ${peerConnection.signalingState} state, not stable`);
-        // Try to roll back
-        const rollback = { type: 'rollback' } as RTCSessionDescriptionInit;
-        await peerConnection.setLocalDescription(rollback);
-        await peerConnection.setRemoteDescription(rollback);
+        
+        // If we're already negotiating, we need to decide who rolls back
+        if (peerConnection.signalingState === 'have-local-offer') {
+          // Use socket IDs to determine who should roll back (lower ID wins)
+          const myId = socket.id || '';
+          const peerId = senderId || '';
+          
+          // The peer with the higher ID should roll back
+          const shouldRollback = myId > peerId;
+          
+          if (shouldRollback) {
+            console.log('Collision detected, rolling back local description');
+            try {
+              await peerConnection.setLocalDescription({type: 'rollback'});
+            } catch (e) {
+              console.error('Error during rollback:', e);
+              // If rollback fails, close and recreate the connection
+              const connection = videoContext.peerConnections.get(senderId);
+              if (connection) {
+                peerConnection.close();
+                peerConnection = createPeerConnection(senderId, senderName);
+                videoContext.peerConnections.set(senderId, {
+                  connection: peerConnection,
+                  userName: senderName,
+                  stream: undefined
+                });
+              }
+            }
+          } else {
+            console.log('Collision detected, but waiting for peer to rollback instead');
+            return; // Ignore the offer for now
+          }
+        }
       }
       
-      // Set the remote description
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-      
-      // Create an answer
-      const answer = await peerConnection.createAnswer();
-      await peerConnection.setLocalDescription(answer);
-      
-      // Send the answer back
-      socket.emit('webrtc-answer', {
-        answer,
-        receiverId: senderId,
-        roomId
-      });
+      try {
+        // Set the remote description
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+        
+        // Create an answer
+        const answer = await peerConnection.createAnswer();
+        
+        // Set local description
+        await peerConnection.setLocalDescription(answer);
+        
+        // Make sure we have all the required fields for the answer
+        if (!socket || !videoContext.roomId || !videoContext.userName) {
+          console.error('Cannot send answer: Missing required data');
+          return;
+        }
+        
+        // Send the answer back with all required fields
+        socket.emit('webrtc-answer', {
+          answer,
+          receiverId: senderId,
+          roomId: videoContext.roomId,
+          senderName: videoContext.userName
+        });
+      } catch (e) {
+        console.error(`Error during offer/answer process with ${senderName}:`, e);
+        
+        // Try to recover by recreating the connection
+        const connection = videoContext.peerConnections.get(senderId);
+        if (connection) {
+          peerConnection.close();
+          const newPeerConnection = createPeerConnection(senderId, senderName);
+          videoContext.peerConnections.set(senderId, {
+            connection: newPeerConnection,
+            userName: senderName,
+            stream: undefined
+          });
+          
+          // Try the process again
+          try {
+            await newPeerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+            const newAnswer = await newPeerConnection.createAnswer();
+            await newPeerConnection.setLocalDescription(newAnswer);
+            
+            // Send the answer
+            socket.emit('webrtc-answer', {
+              answer: newAnswer,
+              receiverId: senderId,
+              roomId: videoContext.roomId,
+              senderName: videoContext.userName
+            });
+          } catch (retryError) {
+            console.error(`Error during retry with ${senderName}:`, retryError);
+          }
+        }
+      }
     } catch (e) {
       console.error(`Error handling offer from ${senderName}:`, e);
+      if (e instanceof Error) {
+        console.warn(`WebRTC offer error details: ${e.message}`);
+      }
     }
   });
   
@@ -597,11 +677,15 @@ const createPeerConnection = (userId: string, userName: string) => {
         console.log(`ICE candidate generated for ${userName}`, 
           event.candidate.candidate ? event.candidate.candidate.substring(0, 50) + '...' : 'empty candidate');
           
-        videoContext.socket.emit('webrtc-ice-candidate', {
-          candidate: event.candidate,
-          receiverId: userId,
-          roomId: videoContext.roomId,
-        });
+        try {
+          videoContext.socket.emit('webrtc-ice-candidate', {
+            candidate: event.candidate,
+            receiverId: userId,
+            roomId: videoContext.roomId,
+          });
+        } catch (e) {
+          console.error(`Error sending ICE candidate for ${userName}:`, e);
+        }
       } else if (!event.candidate) {
         console.log(`ICE candidate gathering complete for ${userName}`);
       }
@@ -774,6 +858,12 @@ const createOffer = async (userId: string) => {
       return;
     }
     
+    // Check if we're already in the process of negotiating to prevent duplicate offers
+    if (peerConnection.connection.signalingState !== 'stable') {
+      console.warn(`Cannot create offer: Peer connection for ${peerConnection.userName} is in ${peerConnection.connection.signalingState} state, not stable`);
+      return;
+    }
+    
     // Make sure our local stream tracks are enabled before creating the offer
     if (videoContext.localStream) {
       ensureTracksEnabled(videoContext.localStream);
@@ -786,39 +876,105 @@ const createOffer = async (userId: string) => {
       iceRestart: true  // Enable ICE restart to overcome potential networking issues
     });
     
-    // Set local description
+    // Set local description - must happen before sending offer
     await peerConnection.connection.setLocalDescription(offer);
     
-    // Send the offer to the peer
-    if (videoContext.socket && videoContext.roomId) {
-      const { userName, roomId } = videoContext;
-      
-      // Send a few times to improve reliability with potentially flaky connections
-      console.log(`Sending offer to ${peerConnection.userName} (${userId})`);
-      videoContext.socket.emit('webrtc-offer', {
-        offer, 
-        receiverId: userId, 
-        senderName: userName,
-        roomId
+    // Wait a short moment to ensure local description is set
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Verify that userId and other required parameters are not undefined
+    if (!userId || !videoContext.roomId || !videoContext.socket || !videoContext.userName) {
+      console.error('Cannot send offer: Missing required data', {
+        userId,
+        roomId: videoContext.roomId,
+        socket: !!videoContext.socket,
+        userName: videoContext.userName
       });
-      
-      // Add a slight delay and send again for reliability
-      setTimeout(() => {
-        if (videoContext.socket && peerConnection.connection.signalingState === 'have-local-offer') {
-          console.log(`Resending offer to ${peerConnection.userName} (redundancy)`);
-          videoContext.socket.emit('webrtc-offer', {
-            offer,
-            receiverId: userId,
-            senderName: userName,
-            roomId
-          });
-        }
-      }, 1000);
-    } else {
-      console.error('Cannot send offer: Socket or room ID not available');
+      return;
     }
+    
+    // Verify the signaling state is still valid before sending
+    const currentSignalingState = peerConnection.connection.signalingState;
+    if (currentSignalingState !== 'have-local-offer' as RTCSignalingState) {
+      console.warn(`Signaling state changed unexpectedly before sending offer: ${currentSignalingState}`);
+      return;
+    }
+    
+    // Create a properly structured offer object for sending
+    const offerData = {
+      offer: peerConnection.connection.localDescription,
+      receiverId: userId, // Ensure receiverId is explicitly set
+      senderName: videoContext.userName,
+      roomId: videoContext.roomId
+    };
+    
+    console.log(`Sending offer to ${peerConnection.userName} (${userId})`, offerData);
+    
+    // Send the offer to the peer
+    videoContext.socket.emit('webrtc-offer', offerData);
+    
+    // We don't immediately resend offers; we wait for a response or timeout
+    const retryDelay = 8000; // 8 seconds
+    setTimeout(() => {
+      // Only resend if we're still in the same state and haven't progressed
+      if (videoContext.socket && 
+          peerConnection.connection && 
+          peerConnection.connection.connectionState !== 'connected' &&
+          peerConnection.connection.iceConnectionState !== 'connected') {
+        
+        console.log(`Connection still not established with ${peerConnection.userName}, initiating new offer`);
+        
+        // Instead of resending the same offer, create a fresh connection
+        cleanupSingleConnection(userId);
+        
+        // Recreate peer connection after a short delay
+        setTimeout(() => {
+          if (videoContext.peerConnections && !videoContext.peerConnections.has(userId)) {
+            const newPeerConnection = createPeerConnection(userId, peerConnection.userName);
+            
+            // Store the connection
+            videoContext.peerConnections.set(userId, { 
+              connection: newPeerConnection,
+              userName: peerConnection.userName,
+              stream: undefined
+            });
+            
+            // Try to create a new offer
+            if (videoContext.localStream) {
+              createOffer(userId);
+            }
+          }
+        }, 500);
+      }
+    }, retryDelay);
   } catch (error) {
     console.error(`Error creating offer for ${userId}:`, error);
+  }
+};
+
+// Helper function to clean up a single connection
+const cleanupSingleConnection = (userId: string) => {
+  console.log(`Cleaning up connection for user ${userId}`);
+  
+  const connection = videoContext.peerConnections.get(userId);
+  if (connection) {
+    // Close the RTCPeerConnection
+    if (connection.connection) {
+      connection.connection.close();
+    }
+    
+    // Remove the connection from our map
+    videoContext.peerConnections.delete(userId);
+    
+    // Dispatch event to remove the stream from UI
+    if (connection.stream) {
+      activeStreams.delete(connection.stream);
+      window.dispatchEvent(
+        new CustomEvent('webrtc-stream-removed', {
+          detail: { userId },
+        })
+      );
+    }
   }
 };
 
