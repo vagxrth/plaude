@@ -164,15 +164,19 @@ const VideoStream = ({ stream, userName, muted = false, isLocal = false }: Video
       console.log(`Attaching stream to video element for ${isLocal ? 'local' : userName}`);
       
       try {
-        // Force cleanup of any previous streams
-        if (videoElement.srcObject) {
-          console.log(`Clearing previous srcObject for ${isLocal ? 'local' : userName}`);
-          videoElement.srcObject = null;
-        }
+        // Only set srcObject if it's a different stream or null
+        const currentSrcObj = videoElement.srcObject;
+        const srcNeedsUpdate = currentSrcObj === null || 
+                              (currentSrcObj instanceof MediaStream && 
+                               currentSrcObj.id !== stream.id);
         
-        // Set srcObject and add error handling
-        videoElement.srcObject = stream;
-        setVideoError(null);
+        if (srcNeedsUpdate) {
+          console.log(`Setting new srcObject for ${isLocal ? 'local' : userName}`);
+          videoElement.srcObject = stream;
+          setVideoError(null);
+        } else {
+          console.log(`Reusing existing srcObject for ${isLocal ? 'local' : userName}`);
+        }
         
         // Setup error handler
         videoElement.onerror = (e) => {
@@ -189,62 +193,63 @@ const VideoStream = ({ stream, userName, muted = false, isLocal = false }: Video
         updateVideoStatus();
         
         // Listen for track events
-        stream.addEventListener('addtrack', () => {
-          console.log(`Track added to ${isLocal ? 'local' : userName} stream`);
-          updateVideoStatus();
-        });
-        
-        stream.addEventListener('removetrack', () => {
-          console.log(`Track removed from ${isLocal ? 'local' : userName} stream`);
-          updateVideoStatus();
-        });
+        stream.addEventListener('addtrack', updateVideoStatus);
+        stream.addEventListener('removetrack', updateVideoStatus);
         
         // Handle video loaded
-        videoElement.onloadedmetadata = () => {
+        const handleMetadataLoaded = () => {
           console.log(`Video metadata loaded for ${isLocal ? 'local' : userName}`);
           setIsVideoLoaded(true);
           
-          // Explicitly play the video element
-          videoElement.play()
-            .then(() => {
-              console.log(`Video playback started for ${isLocal ? 'local' : userName}`);
-              
-              // Additional check to ensure video is actually playing
-              setTimeout(() => {
-                if (videoElement.paused) {
-                  console.warn(`Video is paused for ${isLocal ? 'local' : userName} despite play() success`);
-                  videoElement.play().catch(e => 
-                    console.error(`Error playing video on 2nd attempt:`, e));
-                }
-              }, 200);
-            })
-            .catch(e => {
-              console.error(`Error playing video for ${isLocal ? 'local' : userName}:`, e);
-              
-              // Try again with user interaction
-              setVideoError("Video failed to play automatically. Click the video area to enable.");
-              
-              // Set video to be muted which helps with autoplay
-              if (!isLocal) { // Don't mute local video if it's already muted
-                videoElement.muted = true;
-                console.log(`Video has been muted to try again for ${isLocal ? 'local' : userName}`);
-                
-                videoElement.play().catch(e2 => {
-                  console.error(`Even muted, video failed to play:`, e2);
+          // Only attempt to play if video is paused
+          if (videoElement.paused) {
+            console.log(`Attempting to play video for ${isLocal ? 'local' : userName}`);
+            
+            // Use a Promise with a timeout to prevent hanging
+            const playPromise = videoElement.play();
+            
+            if (playPromise !== undefined) {
+              playPromise
+                .then(() => {
+                  console.log(`Video playback started for ${isLocal ? 'local' : userName}`);
+                })
+                .catch(e => {
+                  console.error(`Error playing video for ${isLocal ? 'local' : userName}:`, e);
                   
-                  // Try canvas as fallback
-                  if (!useCanvas) {
-                    console.log('Switching to canvas rendering as fallback');
-                    setUseCanvas(true);
+                  // Try again with user interaction
+                  setVideoError("Video failed to play automatically. Click the video area to enable.");
+                  
+                  // Set video to be muted which helps with autoplay
+                  if (!isLocal && !videoElement.muted) {
+                    videoElement.muted = true;
+                    console.log(`Video has been muted to try again for ${userName}`);
+                    
+                    videoElement.play().catch(e2 => {
+                      console.error(`Even muted, video failed to play:`, e2);
+                      
+                      // Try canvas as fallback
+                      if (!useCanvas) {
+                        console.log('Switching to canvas rendering as fallback');
+                        setUseCanvas(true);
+                      }
+                    });
                   }
                 });
-              }
-            });
+            }
+          }
         };
+        
+        // Set event handler only if we need to
+        if (!isVideoLoaded && srcNeedsUpdate) {
+          videoElement.onloadedmetadata = handleMetadataLoaded;
+        } else if (isVideoLoaded && videoElement.paused) {
+          // Try to play immediately if we're already loaded but paused
+          handleMetadataLoaded();
+        }
         
         // Sometimes onloadedmetadata doesn't fire, add a safety timeout
         const metadataTimeout = setTimeout(() => {
-          if (!isVideoLoaded) {
+          if (!isVideoLoaded && videoElement.paused) {
             console.warn(`Metadata timeout for ${isLocal ? 'local' : userName}, forcing play attempt`);
             
             // Force a play attempt even without metadata loaded
@@ -279,9 +284,11 @@ const VideoStream = ({ stream, userName, muted = false, isLocal = false }: Video
     } else {
       console.log(`No stream available for ${isLocal ? 'local' : userName}`);
       try {
-        videoElement.srcObject = null;
-        setIsVideoLoaded(false);
-        setUseCanvas(false);
+        if (videoElement.srcObject !== null) {
+          videoElement.srcObject = null;
+          setIsVideoLoaded(false);
+          setUseCanvas(false);
+        }
       } catch (e) {
         console.error('Error clearing video source:', e);
       }
@@ -300,8 +307,19 @@ const VideoStream = ({ stream, userName, muted = false, isLocal = false }: Video
         
         try {
           // Clean up video element on unmount
-          videoElement.pause();
-          videoElement.srcObject = null;
+          const playPromise = videoElement.play();
+          if (playPromise !== undefined) {
+            playPromise.then(() => {
+              videoElement.pause();
+              if (!isLocal) { // Don't clear local video on remount
+                videoElement.srcObject = null;
+              }
+            }).catch(() => {
+              if (!isLocal) { // Don't clear local video on remount
+                videoElement.srcObject = null;
+              }
+            });
+          }
         } catch (e) {
           console.error(`Error cleaning up video for ${isLocal ? 'local' : userName}:`, e);
         }

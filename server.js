@@ -249,17 +249,116 @@ app.prepare().then(() => {
     });
     
     // Handle connection readiness - a user is ready to receive connection offers
-    socket.on('ready-for-connections', ({ roomId }) => {
-      // Keeping event handler as a no-op to maintain compatibility
-      console.log(`[Server] User ${socket.id} is ready for connections in room ${roomId} (DEPRECATED)`);
-      // No action needed - keeping for compatibility
+    socket.on('user-ready', ({ userId, roomId }) => {
+      console.log(`[Server] User ${socket.id} is ready for user ${userId} in room ${roomId}`);
+      
+      try {
+        // Validate input
+        if (!roomId) {
+          throw new Error('Invalid room ID');
+        }
+        
+        // Check if room exists
+        const room = rooms[roomId];
+        if (!room) {
+          throw new Error(`Room ${roomId} not found`);
+        }
+        
+        // Get the current user
+        const currentUser = room.users.find(u => u.id === socket.id);
+        if (!currentUser) {
+          throw new Error(`User ${socket.id} not found in room ${roomId}`);
+        }
+        
+        // If userId is specified, notify only that user
+        if (userId) {
+          const targetUser = room.users.find(u => u.id === userId);
+          if (targetUser) {
+            io.to(userId).emit('user-ready', {
+              userId: socket.id,
+              userName: currentUser.name,
+              roomId
+            });
+            console.log(`[Server] Notified ${targetUser.name} that ${currentUser.name} is ready`);
+          }
+        } else {
+          // Notify all users in the room that this user is ready
+          socket.to(roomId).emit('user-ready', {
+            userId: socket.id,
+            userName: currentUser.name,
+            roomId
+          });
+          console.log(`[Server] Notified all users in room ${roomId} that ${currentUser.name} is ready`);
+        }
+      } catch (error) {
+        console.error('[Server] Error in user-ready:', error);
+        socket.emit('server-error', { 
+          message: error instanceof Error ? error.message : 'Failed to process user ready event'
+        });
+      }
     });
     
     // Handle media ready event - user has media initialized and ready to share
-    socket.on('media-ready', ({ roomId, userName }) => {
-      // Keeping event handler as a no-op to maintain compatibility
-      console.log(`[Server] User ${userName} (${socket.id}) has media ready in room ${roomId} (DEPRECATED)`);
-      // No action needed - keeping for compatibility
+    socket.on('user-media-ready', ({ userId, roomId }) => {
+      console.log(`[Server] User ${socket.id} has media ready in room ${roomId}`);
+      
+      try {
+        // Validate input
+        if (!roomId) {
+          throw new Error('Invalid room ID');
+        }
+        
+        // Check if room exists
+        const room = rooms[roomId];
+        if (!room) {
+          throw new Error(`Room ${roomId} not found`);
+        }
+        
+        // Get the current user
+        const currentUser = room.users.find(u => u.id === socket.id);
+        if (!currentUser) {
+          throw new Error(`User ${socket.id} not found in room ${roomId}`);
+        }
+        
+        // If userId is specified, notify only that user
+        if (userId) {
+          const targetUser = room.users.find(u => u.id === userId);
+          if (targetUser) {
+            io.to(userId).emit('user-media-ready', {
+              userId: socket.id,
+              userName: currentUser.name,
+              roomId
+            });
+            console.log(`[Server] Notified ${targetUser.name} that ${currentUser.name} has media ready`);
+          }
+        } else {
+          // Notify all users in the room that this user has media ready
+          socket.to(roomId).emit('user-media-ready', {
+            userId: socket.id,
+            userName: currentUser.name,
+            roomId
+          });
+          console.log(`[Server] Notified all users in room ${roomId} that ${currentUser.name} has media ready`);
+        }
+        
+        // Tell this user to initiate connections with all other users in the room
+        const otherUsers = room.users.filter(u => u.id !== socket.id);
+        if (otherUsers.length > 0) {
+          console.log(`[Server] Telling ${currentUser.name} to initiate connections with ${otherUsers.length} other users`);
+          
+          otherUsers.forEach(user => {
+            socket.emit('initiate-connection', {
+              senderId: user.id,
+              senderName: user.name
+            });
+          });
+        }
+      } catch (error) {
+        console.error('[Server] Error in user-media-ready:', error);
+        socket.emit('server-error', { 
+          message: error instanceof Error ? error.message : 'Failed to process media ready event'
+        });
+      }
     });
     
     // Handle media error event
@@ -270,6 +369,49 @@ app.prepare().then(() => {
     });
     
     // WebRTC signaling events
+    
+    // Handle direct connection initiation requests
+    socket.on('initiate-connection', ({ targetUserId, roomId }) => {
+      console.log(`[Server] Connection initiation request from ${socket.id} to ${targetUserId} in room ${roomId}`);
+      
+      try {
+        // Validate input
+        if (!roomId || !targetUserId) {
+          throw new Error('Invalid connection initiation data');
+        }
+        
+        // Check if user is in specified room
+        const room = rooms[roomId];
+        if (!room) {
+          throw new Error(`Room ${roomId} not found`);
+        }
+        
+        // Get sender username
+        const senderUser = room.users.find(u => u.id === socket.id);
+        if (!senderUser) {
+          throw new Error(`Sender ${socket.id} not found in room ${roomId}`);
+        }
+        
+        // Check if target user is in the room
+        const targetUser = room.users.find(u => u.id === targetUserId);
+        if (!targetUser) {
+          throw new Error(`Target user ${targetUserId} not found in room ${roomId}`);
+        }
+        
+        // Forward the connection request to the target user
+        io.to(targetUserId).emit('initiate-connection', {
+          senderId: socket.id,
+          senderName: senderUser.name
+        });
+        
+        console.log(`[Server] Forwarded connection request from ${senderUser.name} to ${targetUser.name}`);
+      } catch (error) {
+        console.error('[Server] Error in initiate-connection:', error);
+        socket.emit('server-error', { 
+          message: error instanceof Error ? error.message : 'Failed to initiate connection'
+        });
+      }
+    });
     
     // Handle WebRTC offer
     socket.on('webrtc-offer', ({ offer, receiverId, senderName, roomId }) => {

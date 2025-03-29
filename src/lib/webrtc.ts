@@ -359,25 +359,120 @@ export const initializeWebRTC = (
   
   // Set up socket event listeners
   
+  // Handle direct connection requests
+  socket.on('initiate-connection', ({ senderId, senderName }) => {
+    console.log(`Received connection request from ${senderName || senderId}`);
+    
+    // Check if we already have a connection
+    const existingConnection = videoContext.peerConnections.get(senderId);
+    if (existingConnection && existingConnection.connection) {
+      const connectionState = existingConnection.connection.connectionState;
+      
+      if (connectionState !== 'connected') {
+        console.log(`Existing connection with ${senderName || senderId} is in ${connectionState} state, recreating`);
+        
+        // Clean up the old connection
+        cleanupSingleConnection(senderId);
+        
+        // Create a new connection with a slight delay
+        setTimeout(() => {
+          if (!videoContext.peerConnections.has(senderId)) {
+            const peerConnection = createPeerConnection(senderId, senderName || 'User');
+            videoContext.peerConnections.set(senderId, {
+              connection: peerConnection,
+              userName: senderName || 'User',
+              stream: undefined
+            });
+            
+            // Create an offer if we have a local stream
+            if (videoContext.localStream) {
+              createOffer(senderId);
+            }
+          }
+        }, 500);
+      } else {
+        console.log(`Already have a connected connection with ${senderName || senderId}, no action needed`);
+      }
+    } else {
+      console.log(`Creating new connection with ${senderName || senderId} after request`);
+      
+      // Create a new connection
+      const peerConnection = createPeerConnection(senderId, senderName || 'User');
+      videoContext.peerConnections.set(senderId, {
+        connection: peerConnection,
+        userName: senderName || 'User',
+        stream: undefined
+      });
+      
+      // Create an offer if we have a local stream
+      if (videoContext.localStream) {
+        setTimeout(() => createOffer(senderId), 500);
+      }
+    }
+  });
+  
   // Handle when a new user joins
   socket.on('user-joined', ({ userId, userName: remoteUserName }) => {
     console.log(`User joined: ${remoteUserName} (${userId})`);
     
-    // Create a peer connection for the new user
-    const peerConnection = createPeerConnection(userId, remoteUserName);
-    
-    // Store the connection
-    videoContext.peerConnections.set(userId, { 
-      connection: peerConnection,
-      userName: remoteUserName,
-      stream: undefined
-    });
-    
-    // If we have a local stream, create an offer immediately
-    if (videoContext.localStream) {
-      createOffer(userId);
+    // Check if we already have a connection for this user
+    if (videoContext.peerConnections.has(userId)) {
+      console.log(`Connection already exists for ${remoteUserName} (${userId}), checking state`);
+      
+      const existingConnection = videoContext.peerConnections.get(userId);
+      if (existingConnection && existingConnection.connection) {
+        const connectionState = existingConnection.connection.connectionState;
+        
+        // If the connection is not in a good state, recreate it
+        if (connectionState === 'failed' || connectionState === 'closed' || connectionState === 'disconnected') {
+          console.log(`Existing connection is in ${connectionState} state, recreating`);
+          existingConnection.connection.close();
+          
+          // Create a new peer connection
+          const peerConnection = createPeerConnection(userId, remoteUserName);
+          
+          // Store the connection
+          videoContext.peerConnections.set(userId, { 
+            connection: peerConnection,
+            userName: remoteUserName,
+            stream: existingConnection.stream
+          });
+          
+          // Create a new offer
+          if (videoContext.localStream) {
+            setTimeout(() => createOffer(userId), 500);
+          }
+        } else {
+          console.log(`Existing connection is in ${connectionState} state, no need to recreate`);
+          return;
+        }
+      }
     } else {
-      console.warn('Local stream not ready yet, delaying offer creation');
+      // Create a peer connection for the new user
+      const peerConnection = createPeerConnection(userId, remoteUserName);
+      
+      // Store the connection
+      videoContext.peerConnections.set(userId, { 
+        connection: peerConnection,
+        userName: remoteUserName,
+        stream: undefined
+      });
+      
+      // If we have a local stream, create an offer with a slight delay to ensure everything is ready
+      if (videoContext.localStream) {
+        setTimeout(() => createOffer(userId), 500);
+      } else {
+        console.warn('Local stream not ready yet, delaying offer creation');
+        
+        // Set up a one-time event listener for when local stream becomes available
+        const handleLocalMediaReady = () => {
+          console.log(`Local media became ready, creating offer for ${remoteUserName}`);
+          setTimeout(() => createOffer(userId), 500);
+          window.removeEventListener('local-media-ready', handleLocalMediaReady);
+        };
+        
+        window.addEventListener('local-media-ready', handleLocalMediaReady);
+      }
     }
   });
   
@@ -766,6 +861,10 @@ const createPeerConnection = (userId: string, userName: string) => {
       const connection = videoContext.peerConnections.get(userId);
       
       if (connection) {
+        // Check if this is a new stream or we're updating an existing one
+        const isNewStream = !connection.stream || connection.stream.id !== stream.id;
+        
+        // Store the stream in the connection
         connection.stream = stream;
         
         // Ensure remote tracks are enabled immediately
@@ -816,6 +915,20 @@ const createPeerConnection = (userId: string, userName: string) => {
           }
         };
         
+        // If this is a new stream, dispatch an event to notify the UI
+        if (isNewStream) {
+          console.log(`Dispatching new stream event for ${userName}`);
+          window.dispatchEvent(
+            new CustomEvent('webrtc-stream-added', {
+              detail: {
+                userId,
+                userName,
+                stream,
+              },
+            })
+          );
+        }
+        
         // Fix for some browsers that disable tracks on connection
         // Force re-enable shortly after receiving
         setTimeout(() => {
@@ -828,13 +941,6 @@ const createPeerConnection = (userId: string, userName: string) => {
             }
           }
         }, 300);
-        
-        // Dispatch an event that a new stream is available
-        window.dispatchEvent(
-          new CustomEvent('webrtc-stream-added', {
-            detail: { userId, userName, stream },
-          })
-        );
       } else {
         console.warn(`Received track from ${userName} but connection not found`);
       }
@@ -867,6 +973,15 @@ const createOffer = async (userId: string) => {
     // Make sure our local stream tracks are enabled before creating the offer
     if (videoContext.localStream) {
       ensureTracksEnabled(videoContext.localStream);
+      
+      // Ensure all local tracks are added to the peer connection
+      const existingTracks = peerConnection.connection.getSenders().map(sender => sender.track?.id);
+      videoContext.localStream.getTracks().forEach(track => {
+        if (!existingTracks.includes(track.id)) {
+          console.log(`Adding missing track ${track.kind} to peer connection for ${peerConnection.userName}`);
+          peerConnection.connection.addTrack(track, videoContext.localStream!);
+        }
+      });
     }
     
     // Create the offer with ice restart to overcome potential networking issues
@@ -917,10 +1032,12 @@ const createOffer = async (userId: string) => {
     const retryDelay = 8000; // 8 seconds
     setTimeout(() => {
       // Only resend if we're still in the same state and haven't progressed
+      const currentConnection = videoContext.peerConnections.get(userId);
       if (videoContext.socket && 
-          peerConnection.connection && 
-          peerConnection.connection.connectionState !== 'connected' &&
-          peerConnection.connection.iceConnectionState !== 'connected') {
+          currentConnection?.connection && 
+          currentConnection.connection === peerConnection.connection &&
+          currentConnection.connection.connectionState !== 'connected' &&
+          currentConnection.connection.iceConnectionState !== 'connected') {
         
         console.log(`Connection still not established with ${peerConnection.userName}, initiating new offer`);
         
@@ -949,6 +1066,32 @@ const createOffer = async (userId: string) => {
     }, retryDelay);
   } catch (error) {
     console.error(`Error creating offer for ${userId}:`, error);
+    
+    // Try to recover by recreating the connection after a delay
+    setTimeout(() => {
+      const peerConnection = videoContext.peerConnections.get(userId);
+      if (peerConnection) {
+        console.log(`Attempting to recover from error for ${peerConnection.userName}`);
+        cleanupSingleConnection(userId);
+        
+        // Recreate the connection
+        setTimeout(() => {
+          if (!videoContext.peerConnections.has(userId)) {
+            const newPeerConnection = createPeerConnection(userId, peerConnection.userName);
+            videoContext.peerConnections.set(userId, {
+              connection: newPeerConnection,
+              userName: peerConnection.userName,
+              stream: undefined
+            });
+            
+            // Try creating an offer again
+            if (videoContext.localStream) {
+              createOffer(userId);
+            }
+          }
+        }, 1000);
+      }
+    }, 2000);
   }
 };
 
