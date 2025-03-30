@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import io, { Socket } from "socket.io-client";
 import VideoRoom from "@/components/VideoRoom";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function VideoRoomPage({ params }: { params: Promise<{ roomId: string }> }) {
   // Unwrap params using React.use()
@@ -192,6 +193,8 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500 mx-auto"></div>
           <p className="mt-4 text-gray-600 dark:text-gray-300">Connecting to server...</p>
         </div>
+        
+        <ThemeToggle />
       </div>
     );
   }
@@ -212,7 +215,7 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
           <div className="glass-morphism p-10 rounded-xl text-center animate-fade-in">
             <div className="flex flex-col items-center">
               <div className="h-12 w-12 rounded-full border-t-2 border-b-2 border-purple-500 animate-spin mb-4"></div>
-              <p className="text-gray-300">Connecting to server...</p>
+              <p className="text-foreground/70">Connecting to server...</p>
             </div>
           </div>
         ) : (
@@ -224,9 +227,9 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
                   <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
                 </svg>
               </div>
-              <h1 className="text-2xl font-bold text-white">Join Video Room</h1>
-              <p className="mt-2 text-gray-300">
-                Room ID: <span className="font-mono font-bold text-white">{unwrappedParams.roomId}</span>
+              <h1 className="text-2xl font-bold text-foreground">Join Video Room</h1>
+              <p className="mt-2 text-foreground/70">
+                Room ID: <span className="font-mono font-bold text-foreground">{unwrappedParams.roomId}</span>
               </p>
             </div>
 
@@ -238,7 +241,7 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
 
             <form onSubmit={handleJoinRoom} className="space-y-4">
               <div className="space-y-2">
-                <label htmlFor="userName" className="block text-sm font-medium text-white/80 mb-1">
+                <label htmlFor="userName" className="block text-sm font-medium text-foreground/80 mb-1">
                   Your Name
                 </label>
                 <input
@@ -247,13 +250,13 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
                   value={userName}
                   onChange={(e) => setUserName(e.target.value)}
                   placeholder="Enter your name"
-                  className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-white placeholder:text-white/40"
+                  className="w-full px-4 py-2 bg-foreground/5 border border-foreground/10 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-foreground placeholder:text-foreground/40"
                   autoComplete="off"
                   required
                 />
               </div>
 
-              <div className="text-sm text-gray-400 p-3 bg-white/5 border border-white/10 rounded-md">
+              <div className="text-sm text-foreground/70 p-3 bg-foreground/5 border border-foreground/10 rounded-md">
                 <p>You&apos;ll need to allow access to your camera and microphone to join the video call.</p>
               </div>
 
@@ -287,6 +290,7 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
             </div>
           </div>
         )}
+        <ThemeToggle />
       </div>
     );
   }
@@ -321,6 +325,7 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
           />
         )}
       </div>
+      <ThemeToggle />
     </div>
   );
 }

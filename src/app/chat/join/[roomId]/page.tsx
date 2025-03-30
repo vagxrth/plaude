@@ -6,6 +6,7 @@ import Link from "next/link";
 import { initializeSocket } from "@/utils/socket";
 import { Socket } from "socket.io-client";
 import Image from "next/image";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface User {
   id: string;
@@ -443,15 +444,15 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold text-white">Join Chat Room</h1>
-            <p className="mt-2 text-gray-300">
-              Room ID: <span className="font-mono font-bold text-white">{unwrappedParams.roomId}</span>
+            <h1 className="text-2xl font-bold text-foreground">Join Chat Room</h1>
+            <p className="mt-2 text-foreground/70">
+              Room ID: <span className="font-mono font-bold text-foreground">{unwrappedParams.roomId}</span>
             </p>
           </div>
 
           <form onSubmit={handleJoinRoom} className="space-y-4">
             <div className="space-y-2">
-              <label htmlFor="userName" className="block text-sm font-medium text-white/80 mb-1">
+              <label htmlFor="userName" className="block text-sm font-medium text-foreground/80 mb-1">
                 Your Name
               </label>
               <input
@@ -460,7 +461,7 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
                 value={userName}
                 onChange={(e) => setUserName(e.target.value)}
                 placeholder="Enter your name"
-                className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder:text-white/40"
+                className="w-full px-4 py-2 bg-foreground/5 border border-foreground/10 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-foreground placeholder:text-foreground/40"
                 autoComplete="off"
                 required
               />
@@ -501,6 +502,8 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
             </Link>
           </div>
         </div>
+        
+        <ThemeToggle />
       </div>
     );
   }
@@ -638,6 +641,8 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
           </ul>
         </div>
       </div>
+      
+      <ThemeToggle />
     </div>
   );
 }

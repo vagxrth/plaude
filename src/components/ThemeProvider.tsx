@@ -2,70 +2,37 @@
 
 import { ReactNode, createContext, useContext, useEffect, useState } from "react";
 
-type Theme = "dark" | "light" | "system";
-
 type ThemeProviderProps = {
   children: ReactNode;
-  defaultTheme?: Theme;
-  storageKey?: string;
 };
 
 type ThemeProviderState = {
-  theme: Theme;
-  setTheme: (theme: Theme) => void;
+  theme: "dark";
 };
 
 const initialState: ThemeProviderState = {
   theme: "dark",
-  setTheme: () => null,
 };
 
 const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
 
 export function ThemeProvider({
   children,
-  defaultTheme = "dark",
-  storageKey = "converse-theme",
   ...props
 }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(defaultTheme);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem(storageKey) as Theme | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-    } else {
-      setTheme(defaultTheme);
-    }
     setMounted(true);
-  }, [defaultTheme, storageKey]);
-
-  useEffect(() => {
-    if (!mounted) return;
     
+    // Force dark mode on the document
     const root = window.document.documentElement;
-    
-    // Remove current theme class
-    root.classList.remove("light", "dark");
-    
-    // Apply new theme
-    if (theme === "system") {
-      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light";
-      root.classList.add(systemTheme);
-    } else {
-      root.classList.add(theme);
-    }
-    
-    // Save to localStorage
-    localStorage.setItem(storageKey, theme);
-  }, [theme, mounted, storageKey]);
+    root.classList.remove("light", "system");
+    root.classList.add("dark");
+  }, []);
 
   const value = {
-    theme,
-    setTheme,
+    theme: "dark",
   };
 
   // Avoid hydration mismatch by not rendering on server

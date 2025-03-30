@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { ThemeProvider } from "@/components/ThemeProvider";
+import { ThemeProvider } from "next-themes";
 
 // Configure fonts
 const geistSans = Geist({
@@ -33,7 +33,12 @@ export default function RootLayout({
         className="antialiased relative bg-background text-foreground"
         suppressHydrationWarning
       >
-        <ThemeProvider defaultTheme="dark">
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
           {children}
         </ThemeProvider>
       </body>

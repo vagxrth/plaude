@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Video, Plus, LogIn } from "lucide-react";
 import { generateRoomId } from "@/utils/roomUtils";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function VideoPage() {
   const router = useRouter();
@@ -54,8 +55,8 @@ export default function VideoPage() {
           <div className="mx-auto bg-purple-600 text-white p-3 rounded-full h-14 w-14 flex items-center justify-center mb-4">
             <Video size={28} />
           </div>
-          <h1 className="text-2xl font-bold text-white">Video Room</h1>
-          <p className="mt-2 text-gray-300">
+          <h1 className="text-2xl font-bold text-foreground">Video Room</h1>
+          <p className="mt-2 text-foreground/70">
             Create a new room or join an existing one
           </p>
         </div>
@@ -71,14 +72,14 @@ export default function VideoPage() {
           </button>
           
           <div className="relative flex py-3 items-center">
-            <div className="flex-grow border-t border-white/10"></div>
-            <span className="flex-shrink mx-3 text-white/60 text-sm">or</span>
-            <div className="flex-grow border-t border-white/10"></div>
+            <div className="flex-grow border-t border-foreground/10"></div>
+            <span className="flex-shrink mx-3 text-foreground/60 text-sm">or</span>
+            <div className="flex-grow border-t border-foreground/10"></div>
           </div>
           
           <form onSubmit={handleJoinRoom} className="space-y-4">
             <div className="space-y-2">
-              <label htmlFor="roomId" className="block text-sm font-medium text-white/80 mb-1">
+              <label htmlFor="roomId" className="block text-sm font-medium text-foreground/80 mb-1">
                 Room ID
               </label>
               <input
@@ -90,7 +91,7 @@ export default function VideoPage() {
                   if (error) setError("");
                 }}
                 placeholder="Enter 6-character room ID"
-                className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-white placeholder:text-white/40"
+                className="w-full px-4 py-2 bg-foreground/5 border border-foreground/10 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-foreground placeholder:text-foreground/40"
                 autoComplete="off"
                 maxLength={6}
               />
@@ -100,7 +101,7 @@ export default function VideoPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-white/10 hover:bg-white/15 text-white rounded-lg transition-colors disabled:opacity-70"
+              className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-foreground/10 hover:bg-foreground/15 text-foreground rounded-lg transition-colors disabled:opacity-70"
             >
               <LogIn size={18} />
               <span>Join Existing Room</span>
@@ -120,6 +121,8 @@ export default function VideoPage() {
           </Link>
         </div>
       </div>
+      
+      <ThemeToggle />
     </div>
   );
 } 

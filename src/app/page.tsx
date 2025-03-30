@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { MessageCircle, Video } from "lucide-react";
 import ActionButton from "@/components/ActionButton";
 import { InteractiveGridPattern } from "@/components/magicui/interactive-grid-pattern";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function Home() {
   const router = useRouter();
@@ -28,7 +29,7 @@ export default function Home() {
           width={30}
           height={30}
           className="fixed inset-0 w-[100vw] h-[100vh] opacity-20"
-          squaresClassName="stroke-foreground/[0.07] hover:fill-foreground/[0.3]"
+          squaresClassName="stroke-foreground/[0.07] hover:fill-foreground/[0.5]"
         />
       </div>
 
@@ -71,6 +72,9 @@ export default function Home() {
           />
         </div>
       </div>
+      
+      {/* Theme Toggle */}
+      <ThemeToggle />
     </section>
   );
 }
