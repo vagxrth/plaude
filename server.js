@@ -542,6 +542,7 @@ app.prepare().then(() => {
           io.to(roomId).emit('user-left', {
             userId: socket.id,
             users: room.users,
+            userName: user.name
           });
           
           console.log(`[Server] User ${user.name} left room ${roomId}`);
