@@ -2,34 +2,23 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { generateRoomId } from "@/utils/roomUtils";
 import { MessageCircle, Video } from "lucide-react";
 import ActionButton from "@/components/ActionButton";
 import { InteractiveGridPattern } from "@/components/magicui/interactive-grid-pattern";
+import { ThemeToggle } from "@/components/ThemeToggle";
+
 export default function Home() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
-  const [roomId, setRoomId] = useState('');
-  const [showRoomInput, setShowRoomInput] = useState(false);
 
   const handleChatClick = () => {
     setIsLoading(true);
-    const roomId = generateRoomId();
-    router.push(`/chat/join/${roomId}`);
+    router.push('/chat');
   };
 
   const handleVideoClick = () => {
     setIsLoading(true);
-    const roomId = generateRoomId();
-    router.push(`/video/join/${roomId}`);
-  };
-
-  const handleEnterRoom = () => {
-    if (showRoomInput && roomId.trim()) {
-      router.push(`/chat/join/${roomId}`);
-    } else {
-      setShowRoomInput(true);
-    }
+    router.push('/video');
   };
 
   return (
@@ -40,7 +29,7 @@ export default function Home() {
           width={30}
           height={30}
           className="fixed inset-0 w-[100vw] h-[100vh] opacity-20"
-          squaresClassName="stroke-foreground/[0.07] hover:fill-foreground/[0.3]"
+          squaresClassName="stroke-foreground/[0.07] hover:fill-foreground/[0.5]"
         />
       </div>
 
@@ -64,7 +53,7 @@ export default function Home() {
         </p>
         
         {/* Main action buttons */}
-        <div className="flex flex-col items-center justify-center gap-4 mb-16">
+        <div className="flex flex-col items-center justify-center gap-4">
           <ActionButton 
             text="Chat" 
             icon={MessageCircle} 
@@ -82,38 +71,10 @@ export default function Home() {
             disabled={isLoading}
           />
         </div>
-        
-        {/* Room ID section - below main buttons */}
-        <div className="mt-4 animate-fade-in" style={{ animationDelay: '500ms' }}>
-          <p className="text-foreground/70 mb-2">Or join an existing room</p>
-          
-          {showRoomInput ? (
-            <div className="flex items-center gap-2 justify-center">
-              <input
-                type="text"
-                value={roomId}
-                onChange={(e) => setRoomId(e.target.value)}
-                placeholder="Enter room ID"
-                className="bg-foreground/5 border-foreground/10 text-foreground placeholder:text-foreground/40 focus:ring-primary w-48 sm:w-64 px-3 py-2 rounded-md"
-              />
-              <button 
-                onClick={handleEnterRoom} 
-                className="bg-foreground/5 text-foreground border border-foreground/10 hover:bg-foreground/10 px-4 py-2 rounded-md"
-              >
-                Join
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={handleEnterRoom}
-              className="text-blue-400 hover:text-blue-300 transition-colors flex items-center justify-center gap-1 mx-auto"
-            >
-              <span>Enter Room ID</span>
-              <span className="text-lg">→</span>
-            </button>
-          )}
-        </div>
       </div>
+      
+      {/* Theme Toggle */}
+      <ThemeToggle />
     </section>
   );
 }

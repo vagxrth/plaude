@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import io, { Socket } from "socket.io-client";
 import VideoRoom from "@/components/VideoRoom";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function VideoRoomPage({ params }: { params: Promise<{ roomId: string }> }) {
   // Unwrap params using React.use()
@@ -192,66 +193,104 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500 mx-auto"></div>
           <p className="mt-4 text-gray-600 dark:text-gray-300">Connecting to server...</p>
         </div>
+        
+        <ThemeToggle />
       </div>
     );
   }
 
   if (!isJoined) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-background to-background/80">
-        <div className="w-full max-w-md p-8 space-y-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Join Video Room</h1>
-            <p className="mt-2 text-gray-600 dark:text-gray-300">
-              Room ID: <span className="font-mono font-bold">{unwrappedParams.roomId}</span>
-            </p>
-          </div>
-
-          {error && (
-            <div className="p-3 bg-red-100 border border-red-200 text-red-700 dark:bg-red-900/30 dark:border-red-700 dark:text-red-400 rounded-md">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleJoinRoom} className="space-y-4">
-            <div>
-              <label htmlFor="userName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Your Name
-              </label>
-              <input
-                type="text"
-                id="userName"
-                value={userName}
-                onChange={(e) => setUserName(e.target.value)}
-                placeholder="Enter your name"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-                autoComplete="off"
-                required
-              />
-            </div>
-
-            <div className="text-sm text-gray-600 dark:text-gray-400">
-              <p>You&apos;ll need to allow access to your camera and microphone to join the video call.</p>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isJoining || !userName.trim() || !socket}
-              className="w-full flex items-center justify-center py-2 px-4 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-70"
-            >
-              {isJoining ? "Joining..." : "Join Video"}
-            </button>
-          </form>
-
-          <div className="pt-4 text-center">
-            <Link 
-              href="/" 
-              className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-            >
-              ← Back to Home
-            </Link>
-          </div>
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-background relative overflow-hidden">
+        {/* Background Elements */}
+        <div className="absolute inset-0 -z-10">
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-purple-600/10 filter blur-3xl animate-pulse-soft"></div>
+          <div className="absolute bottom-1/3 right-1/4 w-80 h-80 rounded-full bg-blue-500/10 filter blur-3xl animate-pulse-soft" style={{ animationDelay: '1s' }}></div>
         </div>
+        
+        {/* Radial gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-radial from-transparent to-background -z-10"></div>
+        
+        {isConnecting ? (
+          <div className="glass-morphism p-10 rounded-xl text-center animate-fade-in">
+            <div className="flex flex-col items-center">
+              <div className="h-12 w-12 rounded-full border-t-2 border-b-2 border-purple-500 animate-spin mb-4"></div>
+              <p className="text-foreground/70">Connecting to server...</p>
+            </div>
+          </div>
+        ) : (
+          <div className="w-full max-w-md p-8 space-y-6 glass-morphism rounded-xl shadow-xl animate-fade-in">
+            <div className="text-center">
+              <div className="mx-auto bg-purple-600 text-white p-3 rounded-full h-14 w-14 flex items-center justify-center mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="23 7 16 12 23 17 23 7" />
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                </svg>
+              </div>
+              <h1 className="text-2xl font-bold text-foreground">Join Video Room</h1>
+              <p className="mt-2 text-foreground/70">
+                Room ID: <span className="font-mono font-bold text-foreground">{unwrappedParams.roomId}</span>
+              </p>
+            </div>
+
+            {error && (
+              <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-md text-red-300 text-sm">
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleJoinRoom} className="space-y-4">
+              <div className="space-y-2">
+                <label htmlFor="userName" className="block text-sm font-medium text-foreground/80 mb-1">
+                  Your Name
+                </label>
+                <input
+                  type="text"
+                  id="userName"
+                  value={userName}
+                  onChange={(e) => setUserName(e.target.value)}
+                  placeholder="Enter your name"
+                  className="w-full px-4 py-2 bg-foreground/5 border border-foreground/10 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-foreground placeholder:text-foreground/40"
+                  autoComplete="off"
+                  required
+                />
+              </div>
+
+              <div className="text-sm text-foreground/70 p-3 bg-foreground/5 border border-foreground/10 rounded-md">
+                <p>You&apos;ll need to allow access to your camera and microphone to join the video call.</p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isJoining || !userName.trim() || !socket}
+                className="w-full flex items-center justify-center py-2 px-4 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-70"
+              >
+                {isJoining ? (
+                  <div className="flex items-center">
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Joining...
+                  </div>
+                ) : "Join Video"}
+              </button>
+            </form>
+
+            <div className="pt-4 text-center">
+              <Link 
+                href="/" 
+                className="text-blue-400 hover:text-blue-300 inline-flex items-center justify-center gap-1 text-sm"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+                <span>Back to Home</span>
+              </Link>
+            </div>
+          </div>
+        )}
+        <ThemeToggle />
       </div>
     );
   }
@@ -286,6 +325,7 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
           />
         )}
       </div>
+      <ThemeToggle />
     </div>
   );
 }
