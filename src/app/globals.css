@@ -77,6 +77,11 @@
   background-image: radial-gradient(circle, var(--tw-gradient-stops));
 }
 
+/* Glass morphism effect */
+.glass-morphism {
+  @apply backdrop-blur-xl bg-[#1A1F2C]/80 border border-white/10 shadow-[0_4px_12px_-2px_rgba(0,0,0,0.3)];
+}
+
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);

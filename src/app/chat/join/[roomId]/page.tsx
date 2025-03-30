@@ -426,18 +426,32 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
 
   if (!isJoined) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-background to-background/80">
-        <div className="w-full max-w-md p-8 space-y-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-background relative overflow-hidden">
+        {/* Background Elements */}
+        <div className="absolute inset-0 -z-10">
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-blue-600/10 filter blur-3xl animate-pulse-soft"></div>
+          <div className="absolute bottom-1/3 right-1/4 w-80 h-80 rounded-full bg-purple-500/10 filter blur-3xl animate-pulse-soft" style={{ animationDelay: '1s' }}></div>
+        </div>
+        
+        {/* Radial gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-radial from-transparent to-background -z-10"></div>
+        
+        <div className="w-full max-w-md p-8 space-y-6 glass-morphism rounded-xl shadow-xl animate-fade-in">
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Join Chat Room</h1>
-            <p className="mt-2 text-gray-600 dark:text-gray-300">
-              Room ID: <span className="font-mono font-bold">{unwrappedParams.roomId}</span>
+            <div className="mx-auto bg-blue-600 text-white p-3 rounded-full h-14 w-14 flex items-center justify-center mb-4">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            </div>
+            <h1 className="text-2xl font-bold text-white">Join Chat Room</h1>
+            <p className="mt-2 text-gray-300">
+              Room ID: <span className="font-mono font-bold text-white">{unwrappedParams.roomId}</span>
             </p>
           </div>
 
           <form onSubmit={handleJoinRoom} className="space-y-4">
-            <div>
-              <label htmlFor="userName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <div className="space-y-2">
+              <label htmlFor="userName" className="block text-sm font-medium text-white/80 mb-1">
                 Your Name
               </label>
               <input
@@ -446,14 +460,14 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
                 value={userName}
                 onChange={(e) => setUserName(e.target.value)}
                 placeholder="Enter your name"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder:text-white/40"
                 autoComplete="off"
                 required
               />
             </div>
 
             {joinError && (
-              <div className="p-3 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-800 rounded-md text-red-800 dark:text-red-300 text-sm">
+              <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-md text-red-300 text-sm">
                 {joinError}
               </div>
             )}
@@ -463,16 +477,27 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
               disabled={isJoining || !userName.trim()}
               className="w-full flex items-center justify-center py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-70"
             >
-              {isJoining ? "Joining..." : "Join Chat"}
+              {isJoining ? (
+                <div className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Joining...
+                </div>
+              ) : "Join Chat"}
             </button>
           </form>
 
           <div className="pt-4 text-center">
             <Link 
               href="/" 
-              className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+              className="text-blue-400 hover:text-blue-300 inline-flex items-center justify-center gap-1 text-sm"
             >
-              ← Back to Home
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+              </svg>
+              <span>Back to Home</span>
             </Link>
           </div>
         </div>
