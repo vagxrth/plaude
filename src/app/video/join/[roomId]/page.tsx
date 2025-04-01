@@ -101,6 +101,20 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
     }
   }, []);
 
+  // Check for stored username on mount
+  useEffect(() => {
+    const storedUserName = sessionStorage.getItem('userName');
+    if (storedUserName) {
+      setUserName(storedUserName);
+      // Automatically join with stored username after socket connection
+      if (socket && !isJoined) {
+        handleJoinRoom(null, storedUserName);
+      }
+      // Clear the stored username
+      sessionStorage.removeItem('userName');
+    }
+  }, [socket, isJoined]);
+
   // Check for microphone/camera permissions first
   const checkMediaPermissions = useCallback(async () => {
     try {
@@ -119,10 +133,12 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
     }
   }, []);
 
-  const handleJoinRoom = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Modified handleJoinRoom to accept external username
+  const handleJoinRoom = async (e: React.FormEvent | null, storedName?: string) => {
+    if (e) e.preventDefault();
     
-    if (!userName.trim() || !socket) return;
+    const nameToUse = storedName || userName.trim();
+    if (!nameToUse || !socket) return;
     
     setIsJoining(true);
     setError(null);
@@ -148,7 +164,7 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
         setIsJoining(false);
       });
       
-      // Listen for errors (will be removed when component unmounts)
+      // Listen for errors
       socket.once('server-error', ({ message }) => {
         console.error('Server error during join:', message);
         setError(`Unable to join: ${message}`);
@@ -171,7 +187,7 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
       // Join the room
       socket.emit('join-room', {
         roomId: unwrappedParams.roomId,
-        userName: userName.trim(),
+        userName: nameToUse,
       });
       
     } catch (error) {

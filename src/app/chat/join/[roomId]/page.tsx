@@ -45,6 +45,18 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
 
+  // Check for stored username on mount
+  useEffect(() => {
+    const storedUserName = sessionStorage.getItem('userName');
+    if (storedUserName) {
+      setUserName(storedUserName);
+      // Automatically join with stored username
+      handleJoinRoom(null, storedUserName);
+      // Clear the stored username
+      sessionStorage.removeItem('userName');
+    }
+  }, []);
+
   // Scroll to bottom of messages
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -209,10 +221,11 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
     };
   }, [socket]);
 
-  const handleJoinRoom = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleJoinRoom = async (e: React.FormEvent | null, storedName?: string) => {
+    if (e) e.preventDefault();
     
-    if (!userName.trim()) {
+    const nameToUse = storedName || userName.trim();
+    if (!nameToUse) {
       setJoinError('Please enter your name');
       return;
     }
@@ -221,7 +234,6 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
     setJoinError(null);
     
     try {
-      // Get the current socket or initialize a new one
       const currentSocket = socketRef.current || await initializeSocket();
       
       if (!currentSocket) {
@@ -235,30 +247,19 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
       socketRef.current = currentSocket;
       setSocket(currentSocket);
       
-      console.log('[Client] Emitting join-room event:', {
-        roomId: unwrappedParams.roomId,
-        userName: userName.trim(),
-        socketId: currentSocket.id
-      });
-      
-      // Set a timeout to detect if the server doesn't respond
       const timeoutId = setTimeout(() => {
         setIsJoining(false);
         setJoinError('Server did not respond. Please try again.');
       }, 10000);
       
-      // Clear previous listeners to avoid duplicates
       currentSocket.off('join-success');
       currentSocket.off('server-error');
       
-      // Listen for join success or error
       currentSocket.once('join-success', () => {
         clearTimeout(timeoutId);
-        // Don't rely solely on the useEffect handler - update state here as well
         setIsJoined(true);
         setIsJoining(false);
         setJoinError(null);
-        // Main handler in the useEffect will handle the other state updates
       });
       
       currentSocket.once('server-error', (error: { message: string }) => {
@@ -266,13 +267,11 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
         console.error('[Client] Server error during join:', error);
         setIsJoining(false);
         setJoinError(error.message || 'Server error');
-        // Main handler in the useEffect will handle the actual state updates
       });
       
-      // Emit the join-room event
       currentSocket.emit('join-room', {
         roomId: unwrappedParams.roomId,
-        userName: userName.trim()
+        userName: nameToUse
       });
       
     } catch (error) {

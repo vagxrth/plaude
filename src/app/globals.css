@@ -181,3 +181,92 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* @tailwind base;
+@tailwind components; */
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+  }
+}
+
+@layer components {
+  .neo-card {
+    @apply bg-black/20 backdrop-blur-xl border border-white/10 shadow-2xl;
+  }
+
+  .card-divider {
+    @apply flex-grow h-px bg-white/10;
+  }
+
+  .btn-glow {
+    @apply relative;
+  }
+
+  .btn-glow::before {
+    content: '';
+    @apply absolute inset-0 rounded-lg opacity-0 transition-opacity;
+    box-shadow: 0 0 25px 3px theme('colors.blue.400/20');
+  }
+
+  .btn-glow:hover::before {
+    @apply opacity-100;
+  }
+
+  .hover-scale {
+    @apply transition-transform hover:scale-105;
+  }
+}
+
+@layer utilities {
+  .animate-appear {
+    animation: appear 0.5s ease-out forwards;
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+
+  .animate-pulse-soft {
+    animation: pulse-soft 2s ease-in-out infinite;
+  }
+}
+
+@keyframes appear {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes pulse-soft {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
