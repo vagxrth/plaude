@@ -179,7 +179,7 @@ export default function VideoPage() {
             <div className="flex items-center justify-center gap-2 text-sm text-white/60 bg-white/5 p-3 rounded-lg border border-white/5">
               <Mic size={14} className="text-purple-400" />
               <Camera size={14} className="text-purple-400" />
-              <span>You'll need to allow access to your camera and microphone</span>
+              <span>You&apos;ll need to allow access to your camera and microphone</span>
             </div>
           </div>
         </CardContent>

@@ -55,6 +55,7 @@ export default function ChatRoom({ params }: { params: Promise<{ roomId: string 
       // Clear the stored username
       sessionStorage.removeItem('userName');
     }
+    //eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Scroll to bottom of messages

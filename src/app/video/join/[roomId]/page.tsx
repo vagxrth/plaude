@@ -113,6 +113,7 @@ export default function VideoRoomPage({ params }: { params: Promise<{ roomId: st
       // Clear the stored username
       sessionStorage.removeItem('userName');
     }
+    //eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, isJoined]);
 
   // Check for microphone/camera permissions first

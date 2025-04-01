@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { MessageCircle, Plus, LogIn, ArrowLeft, PlusCircle } from "lucide-react";
+import { MessageCircle, LogIn, ArrowLeft, PlusCircle } from "lucide-react";
 import { generateRoomId } from "@/utils/roomUtils";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
