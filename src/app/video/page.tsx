@@ -3,126 +3,197 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Video, Plus, LogIn } from "lucide-react";
+import { Video, LogIn, ArrowLeft, PlusCircle, Mic, Camera } from "lucide-react";
 import { generateRoomId } from "@/utils/roomUtils";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 export default function VideoPage() {
   const router = useRouter();
+  const [userName, setUserName] = useState("");
   const [roomId, setRoomId] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const [generatedRoomId] = useState(() => generateRoomId());
 
-  const handleCreateNewRoom = () => {
-    setIsLoading(true);
-    const newRoomId = generateRoomId();
-    router.push(`/video/join/${newRoomId}`);
-  };
-
-  const handleJoinRoom = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleJoinVideo = () => {
+    if (!userName.trim() || !roomId.trim()) return;
     
-    if (!roomId.trim()) {
-      setError("Please enter a room ID");
-      return;
-    }
-    
-    if (roomId.trim().length !== 6) {
-      setError("Room ID must be 6 characters");
-      return;
-    }
-    
-    setIsLoading(true);
-    setError("");
-    
-    // Redirect to the join page for the specified room
+    // Store the username in sessionStorage before redirecting
+    sessionStorage.setItem('userName', userName.trim());
     router.push(`/video/join/${roomId.trim()}`);
   };
 
+  const handleCreateRoom = () => {
+    if (!userName.trim()) return;
+    
+    // Store the username in sessionStorage before redirecting
+    sessionStorage.setItem('userName', userName.trim());
+    router.push(`/video/join/${generatedRoomId}`);
+  };
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-background relative overflow-hidden">
-      {/* Background Elements */}
+    <div className="min-h-screen flex flex-col items-center justify-center px-6 relative overflow-hidden">
+      {/* Enhanced Background Elements */}
       <div className="absolute inset-0 -z-10">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-purple-600/10 filter blur-3xl animate-pulse-soft"></div>
-        <div className="absolute bottom-1/3 right-1/4 w-80 h-80 rounded-full bg-blue-500/10 filter blur-3xl animate-pulse-soft" style={{ animationDelay: '1s' }}></div>
+        {/* Deep space gradient - slightly different hue for video room */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0e0819] via-[#12081f] to-[#050210] opacity-90"></div>
+        
+        {/* Subtle nebula effects */}
+        <div className="absolute top-0 right-0 w-full h-1/2 bg-gradient-radial from-purple-900/5 to-transparent opacity-30"></div>
+        <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-radial from-violet-900/5 to-transparent opacity-20"></div>
+        
+        {/* Animated stars/particles with varying sizes and opacities */}
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="stars-container">
+            {[...Array(40)].map((_, i) => (
+              <div 
+                key={i}
+                className="absolute rounded-full bg-white"
+                style={{
+                  width: `${Math.random() * 2 + 1}px`,
+                  height: `${Math.random() * 2 + 1}px`,
+                  top: `${Math.random() * 100}%`,
+                  left: `${Math.random() * 100}%`,
+                  opacity: Math.random() * 0.5 + 0.1,
+                  animation: `pulse-soft ${Math.random() * 5 + 2}s infinite ease-in-out`,
+                  animationDelay: `${Math.random() * 5}s`
+                }}
+              />
+            ))}
+          </div>
+        </div>
       </div>
       
-      {/* Radial gradient overlay */}
-      <div className="absolute inset-0 bg-gradient-radial from-transparent to-background -z-10"></div>
-      
-      <div className="w-full max-w-md p-8 space-y-8 glass-morphism rounded-xl shadow-xl animate-fade-in">
-        <div className="text-center">
-          <div className="mx-auto bg-purple-600 text-white p-3 rounded-full h-14 w-14 flex items-center justify-center mb-4">
+      <Card className="w-full max-w-md neo-card animate-appear" style={{animationDelay: '100ms'}}>
+        <CardHeader className="pb-4 text-center">
+          <div className="mx-auto bg-gradient-to-br from-purple-500 to-purple-600 text-white p-3 rounded-full h-14 w-14 flex items-center justify-center mb-3 shadow-lg shadow-purple-500/10 animate-float">
             <Video size={28} />
           </div>
-          <h1 className="text-2xl font-bold text-foreground">Video Room</h1>
-          <p className="mt-2 text-foreground/70">
+          <CardTitle className="text-2xl text-center font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/80">
+            Video Room
+          </CardTitle>
+          <CardDescription className="text-center text-white/70">
             Create a new room or join an existing one
-          </p>
-        </div>
+          </CardDescription>
+        </CardHeader>
         
-        <div className="space-y-4">
-          <button
-            onClick={handleCreateNewRoom}
-            disabled={isLoading}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-70"
-          >
-            <Plus size={18} />
-            <span>Create New Room</span>
-          </button>
-          
-          <div className="relative flex py-3 items-center">
-            <div className="flex-grow border-t border-foreground/10"></div>
-            <span className="flex-shrink mx-3 text-foreground/60 text-sm">or</span>
-            <div className="flex-grow border-t border-foreground/10"></div>
+        <CardContent className="space-y-4">
+          <div className="space-y-2 animate-appear" style={{animationDelay: '200ms'}}>
+            <label htmlFor="name" className="text-sm font-medium text-white/80">
+              Your Name
+            </label>
+            <Input
+              id="name"
+              placeholder="Enter your name"
+              value={userName}
+              onChange={(e) => setUserName(e.target.value)}
+              className="bg-white/5 border-white/10 text-white placeholder:text-white/40 focus-visible:ring-purple-500"
+            />
           </div>
           
-          <form onSubmit={handleJoinRoom} className="space-y-4">
-            <div className="space-y-2">
-              <label htmlFor="roomId" className="block text-sm font-medium text-foreground/80 mb-1">
-                Room ID
-              </label>
-              <input
-                type="text"
-                id="roomId"
-                value={roomId}
-                onChange={(e) => {
-                  setRoomId(e.target.value);
-                  if (error) setError("");
-                }}
-                placeholder="Enter 6-character room ID"
-                className="w-full px-4 py-2 bg-foreground/5 border border-foreground/10 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-foreground placeholder:text-foreground/40"
-                autoComplete="off"
-                maxLength={6}
-              />
-              {error && <p className="text-sm text-red-300">{error}</p>}
+          {!isCreating ? (
+            <>
+              <div className="space-y-2 animate-appear" style={{animationDelay: '300ms'}}>
+                <label htmlFor="roomId" className="text-sm font-medium text-white/80">
+                  Room ID
+                </label>
+                <Input
+                  id="roomId"
+                  placeholder="Enter 6-character room ID"
+                  value={roomId}
+                  onChange={(e) => setRoomId(e.target.value)}
+                  className="bg-white/5 border-white/10 text-white placeholder:text-white/40 focus-visible:ring-purple-500"
+                />
+              </div>
+              
+              <Button 
+                onClick={handleJoinVideo} 
+                className="w-full bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white shadow-md shadow-purple-600/10 btn-glow animate-appear flex items-center justify-center transition-all duration-300 hover:scale-[1.02]"
+                disabled={!userName.trim() || !roomId.trim()}
+                style={{animationDelay: '400ms'}}
+              >
+                <LogIn size={18} className="mr-2" />
+                Join Existing Room
+              </Button>
+              
+              <div className="flex items-center gap-2 pt-2 animate-appear" style={{animationDelay: '500ms'}}>
+                <div className="card-divider"></div>
+                <span className="text-xs text-white/60">OR</span>
+                <div className="card-divider"></div>
+              </div>
+              
+              <Button 
+                onClick={() => setIsCreating(true)} 
+                variant="outline"
+                className="w-full bg-white/5 border-white/10 hover:bg-white/10 text-white animate-appear flex items-center justify-center transition-all duration-300 hover:scale-[1.02]"
+                style={{animationDelay: '600ms'}}
+              >
+                <PlusCircle size={18} className="mr-2" />
+                Create New Room
+              </Button>
+            </>
+          ) : (
+            <>
+              <div className="space-y-2 animate-appear" style={{animationDelay: '300ms'}}>
+                <div className="flex justify-between items-center">
+                  <label className="text-sm font-medium text-white/80">
+                    Room ID (Auto-generated)
+                  </label>
+                </div>
+                <div className="bg-white/5 border border-white/10 rounded-md px-4 py-2 font-mono text-white text-sm flex items-center justify-between">
+                  <span>{generatedRoomId}</span>
+                  <span className="text-xs text-white/50">Keep this ID to invite others</span>
+                </div>
+              </div>
+              
+              <Button 
+                onClick={handleCreateRoom} 
+                className="w-full bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white shadow-md shadow-purple-600/10 btn-glow animate-appear flex items-center justify-center transition-all duration-300 hover:scale-[1.02]"
+                disabled={!userName.trim()}
+                style={{animationDelay: '400ms'}}
+              >
+                <PlusCircle size={18} className="mr-2" />
+                Create New Room
+              </Button>
+              
+              <div className="flex items-center gap-2 pt-2 animate-appear" style={{animationDelay: '500ms'}}>
+                <div className="card-divider"></div>
+                <span className="text-xs text-white/60">OR</span>
+                <div className="card-divider"></div>
+              </div>
+              
+              <Button 
+                onClick={() => setIsCreating(false)} 
+                variant="outline"
+                className="w-full bg-white/5 border-white/10 hover:bg-white/10 text-white animate-appear flex items-center justify-center transition-all duration-300 hover:scale-[1.02]"
+                style={{animationDelay: '600ms'}}
+              >
+                <LogIn size={18} className="mr-2" />
+                Join Existing Room
+              </Button>
+            </>
+          )}
+          
+          <div className="pt-3 animate-appear" style={{animationDelay: '700ms'}}>
+            <div className="flex items-center justify-center gap-2 text-sm text-white/60 bg-white/5 p-3 rounded-lg border border-white/5">
+              <Mic size={14} className="text-purple-400" />
+              <Camera size={14} className="text-purple-400" />
+              <span>You&apos;ll need to allow access to your camera and microphone</span>
             </div>
-            
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-foreground/10 hover:bg-foreground/15 text-foreground rounded-lg transition-colors disabled:opacity-70"
-            >
-              <LogIn size={18} />
-              <span>Join Existing Room</span>
-            </button>
-          </form>
-        </div>
+          </div>
+        </CardContent>
         
-        <div className="pt-4 text-center">
+        <CardFooter className="flex items-center justify-center pt-2">
           <Link 
             href="/" 
-            className="text-blue-400 hover:text-blue-300 inline-flex items-center justify-center gap-1 text-sm"
+            className="text-purple-400 hover:text-purple-300 inline-flex items-center justify-center gap-1 mt-2 text-sm transition-colors hover-scale"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M19 12H5M12 19l-7-7 7-7"/>
-            </svg>
+            <ArrowLeft size={16} />
             <span>Back to Home</span>
           </Link>
-        </div>
-      </div>
-      
-      <ThemeToggle />
+        </CardFooter>
+      </Card>
     </div>
   );
 } 

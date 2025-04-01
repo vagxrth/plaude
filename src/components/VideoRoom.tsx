@@ -228,6 +228,7 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
       // Clean up connections
       cleanupConnections();
     };
+    //eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, roomId, userName, isVideoEnabled, isAudioEnabled, createVideoElement]);
   
   // Effect to connect with existing users when our media is ready
