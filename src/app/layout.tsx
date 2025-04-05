@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 
 // Metadata is only used server-side
 export const metadata: Metadata = {
-  title: "Converse - Video Chat",
+  title: "PLAUDE",
   description: "A simple video chat application",
 };
 
