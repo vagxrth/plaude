@@ -45,7 +45,7 @@ export default function Home() {
       {/* Content */}
       <div className="max-w-4xl mx-auto text-center relative z-10">
         <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold tracking-tight text-foreground mb-6 animate-slide-up" style={{ animationDelay: '200ms' }}>
-          Converse
+          PLAUDE
         </h1>
         
         <p className="text-lg md:text-xl text-foreground/70 mb-10 max-w-2xl mx-auto animate-slide-up" style={{ animationDelay: '300ms' }}>
