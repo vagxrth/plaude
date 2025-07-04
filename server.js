@@ -6,6 +6,9 @@ import { Server } from 'socket.io';
 // Store active rooms and their users
 const rooms = {};
 
+// Track which users have already announced media ready to prevent loops
+const userMediaReadyTracker = new Map(); // roomId-userId -> boolean
+
 const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
 const handle = app.getRequestHandler();
@@ -127,6 +130,48 @@ app.prepare().then(() => {
         });
       }
     });
+
+    // Handle request for existing room users
+    socket.on('get-room-users', ({ roomId }) => {
+      try {
+        console.log(`[Server] Get room users request for room ${roomId} from ${socket.id}`);
+        
+        // Validate input
+        if (!roomId || typeof roomId !== 'string') {
+          throw new Error('Invalid room ID');
+        }
+        
+        // Check if room exists
+        if (!rooms[roomId]) {
+          console.log(`[Server] Room ${roomId} not found`);
+          socket.emit('room-users-response', { roomId, users: [] });
+          return;
+        }
+        
+        // Get current user
+        const currentUser = rooms[roomId].users.find(u => u.id === socket.id);
+        if (!currentUser) {
+          throw new Error(`User ${socket.id} not found in room ${roomId}`);
+        }
+        
+        // Get other users in the room (excluding current user)
+        const otherUsers = rooms[roomId].users.filter(u => u.id !== socket.id);
+        
+        console.log(`[Server] Sending ${otherUsers.length} existing users to ${currentUser.name}`);
+        
+        // Send the list of other users
+        socket.emit('room-users-response', { 
+          roomId, 
+          users: otherUsers 
+        });
+        
+      } catch (error) {
+        console.error('[Server] Error in get-room-users:', error);
+        socket.emit('server-error', { 
+          message: error instanceof Error ? error.message : 'Failed to get room users'
+        });
+      }
+    });
     
     // Handle message sending
     socket.on('send-message', ({ roomId, message, sender, attachment }) => {
@@ -232,6 +277,10 @@ app.prepare().then(() => {
           
           console.log(`[Server] User ${user.name} left room ${roomId} explicitly`);
           
+          // Clean up media ready tracker
+          const trackerKey = `${roomId}-${socket.id}`;
+          userMediaReadyTracker.delete(trackerKey);
+          
           // Remove room if empty
           if (rooms[roomId].users.length === 0) {
             delete rooms[roomId];
@@ -320,6 +369,18 @@ app.prepare().then(() => {
           throw new Error(`User ${socket.id} not found in room ${roomId}`);
         }
         
+        // Create a unique key for this user-room combination
+        const trackerKey = `${roomId}-${socket.id}`;
+        
+        // Check if we've already processed this user's media ready event
+        if (userMediaReadyTracker.get(trackerKey)) {
+          console.log(`[Server] User ${currentUser.name} media ready already processed, skipping`);
+          return;
+        }
+        
+        // Mark this user as having announced media ready
+        userMediaReadyTracker.set(trackerKey, true);
+        
         // If userId is specified, notify only that user
         if (userId) {
           const targetUser = room.users.find(u => u.id === userId);
@@ -372,31 +433,37 @@ app.prepare().then(() => {
     
     // Handle direct connection initiation requests
     socket.on('initiate-connection', ({ targetUserId, roomId }) => {
-      console.log(`[Server] Connection initiation request from ${socket.id} to ${targetUserId} in room ${roomId}`);
+      console.log(`[Server] *** CONNECTION INITIATION REQUEST *** from ${socket.id} to ${targetUserId} in room ${roomId}`);
       
       try {
         // Validate input
         if (!roomId || !targetUserId) {
+          console.error(`[Server] Invalid input - roomId: ${roomId}, targetUserId: ${targetUserId}`);
           throw new Error('Invalid connection initiation data');
         }
         
         // Check if user is in specified room
         const room = rooms[roomId];
         if (!room) {
+          console.error(`[Server] Room ${roomId} not found`);
           throw new Error(`Room ${roomId} not found`);
         }
         
         // Get sender username
         const senderUser = room.users.find(u => u.id === socket.id);
         if (!senderUser) {
+          console.error(`[Server] Sender ${socket.id} not found in room ${roomId}`);
           throw new Error(`Sender ${socket.id} not found in room ${roomId}`);
         }
         
         // Check if target user is in the room
         const targetUser = room.users.find(u => u.id === targetUserId);
         if (!targetUser) {
+          console.error(`[Server] Target user ${targetUserId} not found in room ${roomId}`);
           throw new Error(`Target user ${targetUserId} not found in room ${roomId}`);
         }
+        
+        console.log(`[Server] Forwarding connection request from ${senderUser.name} (${socket.id}) to ${targetUser.name} (${targetUserId})`);
         
         // Forward the connection request to the target user
         io.to(targetUserId).emit('initiate-connection', {
@@ -404,7 +471,7 @@ app.prepare().then(() => {
           senderName: senderUser.name
         });
         
-        console.log(`[Server] Forwarded connection request from ${senderUser.name} to ${targetUser.name}`);
+        console.log(`[Server] *** CONNECTION REQUEST FORWARDED *** from ${senderUser.name} to ${targetUser.name}`);
       } catch (error) {
         console.error('[Server] Error in initiate-connection:', error);
         socket.emit('server-error', { 
@@ -537,6 +604,10 @@ app.prepare().then(() => {
         if (userIndex !== -1) {
           const user = room.users[userIndex];
           room.users.splice(userIndex, 1);
+          
+          // Clean up media ready tracker
+          const trackerKey = `${roomId}-${socket.id}`;
+          userMediaReadyTracker.delete(trackerKey);
           
           // Notify everyone in the room about the user leaving
           io.to(roomId).emit('user-left', {

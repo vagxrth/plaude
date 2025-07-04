@@ -152,9 +152,15 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
             videoElement.play().catch(e => console.error('Error playing local video:', e));
           }
           
-          // Initialize WebRTC with current socket
-          console.log('Local stream ready, initializing WebRTC');
-          initializeWebRTC(socket, roomId, userName);
+          // Initialize WebRTC with current socket and local stream
+          console.log('[CLIENT] Local stream ready, initializing WebRTC');
+          console.log('[CLIENT] Local stream details:', { 
+            id: stream.id, 
+            audioTracks: stream.getAudioTracks().length,
+            videoTracks: stream.getVideoTracks().length
+          });
+          initializeWebRTC(socket, roomId, userName, stream);
+          console.log('[CLIENT] WebRTC initialized successfully');
           
           setIsLocalMediaReady(true);
           setIsLoading(false);
@@ -181,19 +187,100 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
       const { user } = data;
       console.log(`User joined: ${user.name} (${user.id})`);
       
-      // Emit ready status to ensure the user knows we're here
-      socket.emit('user-ready', { userId: user.id, roomId });
-      
-      // If we already have our localStream, notify for immediate connection
+      // Only proceed if we have our media ready
       if (isLocalMediaReady && localStream) {
-        console.log(`Sending media-ready to new user ${user.name}`);
+        console.log(`Local media ready, establishing connection with ${user.name}`);
+        
+        // Emit ready status to the new user
+        socket.emit('user-ready', { userId: user.id, roomId });
+        
+        // Notify that we have media ready
         socket.emit('user-media-ready', { userId: user.id, roomId });
         
-        // Force a connection attempt with this user
+        // Wait a bit longer to ensure both sides are ready, then initiate connection
         setTimeout(() => {
-          console.log(`Initializing direct WebRTC connection with ${user.name}`);
+          console.log(`Initiating WebRTC connection with ${user.name}`);
           socket.emit('initiate-connection', { targetUserId: user.id, roomId });
-        }, 1000);
+        }, 2000); // Increased delay to reduce race conditions
+      } else {
+        console.log(`Local media not ready yet, will connect with ${user.name} once ready`);
+        
+        // Store this user to connect later when media is ready
+        const connectWhenReady = () => {
+          if (isLocalMediaReady && localStream) {
+            console.log(`Local media became ready, connecting to ${user.name}`);
+            socket.emit('user-ready', { userId: user.id, roomId });
+            socket.emit('user-media-ready', { userId: user.id, roomId });
+            setTimeout(() => {
+              socket.emit('initiate-connection', { targetUserId: user.id, roomId });
+            }, 1000);
+            window.removeEventListener('local-media-ready', connectWhenReady);
+          }
+        };
+        
+        window.addEventListener('local-media-ready', connectWhenReady);
+      }
+    };
+
+    // Handle when another user's media becomes ready
+    const handleUserMediaReady = (data: { userId: string, userName: string, roomId: string }) => {
+      console.log(`[CLIENT] User media ready event received:`, data);
+      console.log(`[CLIENT] My socket ID: ${socket.id}, Their ID: ${data.userId}`);
+      console.log(`[CLIENT] Local media ready: ${isLocalMediaReady}, Local stream: ${!!localStream}`);
+      
+      // If we also have our media ready and haven't established a connection yet, try to connect
+      if (isLocalMediaReady && localStream) {
+        console.log(`[CLIENT] Both users have media ready, attempting connection with ${data.userName}`);
+        
+        // Use a small delay and check if we should be the one to initiate
+        setTimeout(() => {
+          // Use socket IDs to determine who should initiate (lower ID initiates)
+          const shouldInitiate = socket.id && socket.id < data.userId;
+          
+          console.log(`[CLIENT] Should I initiate? ${shouldInitiate} (My ID: ${socket.id}, Their ID: ${data.userId})`);
+          
+          if (shouldInitiate) {
+            console.log(`[CLIENT] Initiating connection with ${data.userName} (I have lower socket ID)`);
+            socket.emit('initiate-connection', { targetUserId: data.userId, roomId });
+          } else {
+            console.log(`[CLIENT] Waiting for ${data.userName} to initiate connection (they have lower socket ID)`);
+          }
+        }, 500);
+      } else {
+        console.log(`[CLIENT] Cannot connect yet - Local media ready: ${isLocalMediaReady}, Local stream: ${!!localStream}`);
+      }
+    };
+
+    // Handle response with existing room users
+    const handleRoomUsersResponse = (data: { roomId: string, users: Array<{ id: string, name: string }> }) => {
+      console.log(`[CLIENT] Room users response:`, data);
+      console.log(`[CLIENT] My socket ID: ${socket.id}`);
+      console.log(`[CLIENT] Local media ready: ${isLocalMediaReady}, Local stream: ${!!localStream}`);
+      
+      if (isLocalMediaReady && localStream && data.users.length > 0) {
+        // Attempt to connect with each existing user
+        data.users.forEach((user, index) => {
+          setTimeout(() => {
+            console.log(`[CLIENT] Processing existing user: ${user.name} (${user.id})`);
+            
+            // Notify that we have media ready
+            socket.emit('user-media-ready', { userId: user.id, roomId });
+            
+            // Use socket IDs to determine who should initiate (lower ID initiates)
+            const shouldInitiate = socket.id && socket.id < user.id;
+            
+            console.log(`[CLIENT] Should I initiate with existing user? ${shouldInitiate} (My ID: ${socket.id}, Their ID: ${user.id})`);
+            
+            if (shouldInitiate) {
+              console.log(`[CLIENT] Initiating connection with existing user ${user.name} (I have lower socket ID)`);
+              socket.emit('initiate-connection', { targetUserId: user.id, roomId });
+            } else {
+              console.log(`[CLIENT] Waiting for existing user ${user.name} to initiate connection (they have lower socket ID)`);
+            }
+          }, index * 1000); // Stagger connections to avoid overwhelming
+        });
+      } else {
+        console.log(`[CLIENT] Cannot connect to existing users - Media ready: ${isLocalMediaReady}, Stream: ${!!localStream}, Users: ${data.users.length}`);
       }
     };
     
@@ -205,9 +292,17 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
       setRemoteStreams(prev => prev.filter(stream => stream.userId !== data.userId));
     };
     
+    // Clean up any existing listeners first to prevent duplicates
+    socket.off('user-joined');
+    socket.off('user-left'); 
+    socket.off('user-media-ready');
+    socket.off('room-users-response');
+    
     // Set up socket event listeners
     socket.on('user-joined', handleUserJoined);
     socket.on('user-left', handleUserLeft);
+    socket.on('user-media-ready', handleUserMediaReady);
+    socket.on('room-users-response', handleRoomUsersResponse);
     
     // Start setup process
     setupMedia();
@@ -224,6 +319,8 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
       // Remove socket listeners
       socket.off('user-joined', handleUserJoined);
       socket.off('user-left', handleUserLeft);
+      socket.off('user-media-ready', handleUserMediaReady);
+      socket.off('room-users-response', handleRoomUsersResponse);
       
       // Clean up connections
       cleanupConnections();
@@ -231,14 +328,26 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
     //eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, roomId, userName, isVideoEnabled, isAudioEnabled, createVideoElement]);
   
+  // Track if we've already announced our media readiness to prevent loops
+  const [hasAnnouncedReady, setHasAnnouncedReady] = useState(false);
+
   // Effect to connect with existing users when our media is ready
   useEffect(() => {
-    if (isLocalMediaReady) {
-      // Broadcast that we're ready to establish WebRTC connections
-      console.log('Broadcasting media-ready to room');
-      socket.emit('user-media-ready', { roomId });
+    if (isLocalMediaReady && localStream && !hasAnnouncedReady) {
+      console.log('Local media ready, broadcasting to room and requesting existing users (ONCE)');
+      
+      // Mark that we've announced
+      setHasAnnouncedReady(true);
+      
+      // Small delay to ensure everything is set up
+      const timeout = setTimeout(() => {
+        socket.emit('user-media-ready', { roomId });
+        socket.emit('get-room-users', { roomId });
+      }, 500);
+      
+      return () => clearTimeout(timeout);
     }
-  }, [isLocalMediaReady, socket, roomId]);
+  }, [isLocalMediaReady, localStream, hasAnnouncedReady, socket, roomId]);
   
   // Handle toggle audio
   const handleToggleAudio = () => {
@@ -273,7 +382,7 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
     const totalParticipants = 1 + remoteStreams.length;
     
     if (totalParticipants === 1) {
-      return 'grid-cols-1';
+      return 'grid-cols-2'; // Always show 2 columns to leave space for others
     } else if (totalParticipants === 2) {
       return 'grid-cols-2';
     } else if (totalParticipants <= 4) {
@@ -286,16 +395,25 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
   };
   
   const handleRetryConnection = useCallback(() => {
-    if (localStream && remoteStreams.length === 0) {
-      console.log('Retrying connection to peers in room');
-      
-      // Clean up old connections
-      cleanupConnections();
-      
-      // Initialize WebRTC again
-      initializeWebRTC(socket, roomId, userName);
-    }
-  }, [localStream, remoteStreams.length, socket, roomId, userName]);
+    console.log('Retrying connections in room');
+    
+    // Clean up old connections
+    cleanupConnections();
+    
+    // Wait a moment then re-initialize
+    setTimeout(() => {
+      if (localStream) {
+        console.log('Re-initializing WebRTC after cleanup');
+        initializeWebRTC(socket, roomId, userName, localStream);
+        
+        // Request room users again to establish connections
+        socket.emit('get-room-users', { roomId });
+        
+        // Also broadcast that our media is ready
+        socket.emit('user-media-ready', { roomId });
+      }
+    }, 1000);
+  }, [localStream, socket, roomId, userName]);
   
   if (isLoading) {
     return (
@@ -336,7 +454,7 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
                     initLocalStream(videoElement)
                       .then(stream => {
                         setLocalStream(stream);
-                        initializeWebRTC(socket, roomId, userName);
+                        initializeWebRTC(socket, roomId, userName, stream);
                         setIsLoading(false);
                       })
                       .catch(err => {
@@ -368,34 +486,49 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
   return (
     <div className="flex flex-col h-full" ref={videoContainerRef}>
       {/* Video grid */}
-      <div className={`flex-1 grid ${getGridClass()} gap-4 p-4 overflow-auto`}>
+      <div className={`flex-1 grid ${getGridClass()} gap-4 p-4 overflow-auto auto-rows-min`}>
         {/* Local stream */}
         {localStream && (
-          <VideoStream
-            stream={localStream}
-            userName={userName}
-            muted={true}
-            isLocal={true}
-          />
+          <div className="max-w-md max-h-96 mx-auto">
+            <VideoStream
+              stream={localStream}
+              userName={userName}
+              muted={true}
+              isLocal={true}
+            />
+          </div>
         )}
         
         {/* Remote streams */}
         {remoteStreams.map((remote) => (
-          <VideoStream
-            key={remote.userId}
-            stream={remote.stream}
-            userName={remote.userName}
-            muted={false}
-            isLocal={false}
-          />
+          <div key={remote.userId} className="max-w-md max-h-96 mx-auto">
+            <VideoStream
+              stream={remote.stream}
+              userName={remote.userName}
+              muted={false}
+              isLocal={false}
+            />
+          </div>
         ))}
         
         {/* Show placeholder if no streams */}
         {!localStream && remoteStreams.length === 0 && (
-          <div className="flex items-center justify-center bg-gray-900 rounded-lg aspect-video">
+          <div className="flex items-center justify-center bg-gray-900 rounded-lg aspect-video max-w-md max-h-96 mx-auto">
             <div className="text-center text-gray-400">
               <div className="animate-pulse text-4xl mb-2">🎥</div>
               <p>Starting video...</p>
+            </div>
+          </div>
+        )}
+        
+        {/* Placeholder boxes for future participants when there's only one participant */}
+        {localStream && remoteStreams.length === 0 && (
+          <div className="max-w-md max-h-96 mx-auto">
+            <div className="flex items-center justify-center bg-gray-800 border-2 border-dashed border-gray-600 rounded-lg aspect-video">
+              <div className="text-center text-gray-500">
+                <div className="text-3xl mb-2">👥</div>
+                <p className="text-sm">Waiting for participants...</p>
+              </div>
             </div>
           </div>
         )}
