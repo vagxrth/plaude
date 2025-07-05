@@ -51,6 +51,7 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
   useEffect(() => {
     console.log('VideoRoom component mounted, setting up media...');
     let mounted = true;
+    const pendingEventListeners = new Set<() => void>(); // Track event listeners for cleanup
     
     // Event handler for a new remote stream
     const handleNewStream = (event: CustomEvent) => {
@@ -197,11 +198,11 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
         // Notify that we have media ready
         socket.emit('user-media-ready', { userId: user.id, roomId });
         
-        // Wait a bit longer to ensure both sides are ready, then initiate connection
+        // Wait to ensure both sides are ready, then initiate connection
         setTimeout(() => {
           console.log(`Initiating WebRTC connection with ${user.name}`);
           socket.emit('initiate-connection', { targetUserId: user.id, roomId });
-        }, 2000); // Increased delay to reduce race conditions
+        }, 500); // Reduced delay for better responsiveness
       } else {
         console.log(`Local media not ready yet, will connect with ${user.name} once ready`);
         
@@ -213,12 +214,14 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
             socket.emit('user-media-ready', { userId: user.id, roomId });
             setTimeout(() => {
               socket.emit('initiate-connection', { targetUserId: user.id, roomId });
-            }, 1000);
+            }, 500); // Reduced delay for better responsiveness
             window.removeEventListener('local-media-ready', connectWhenReady);
+            pendingEventListeners.delete(connectWhenReady); // Remove from tracking
           }
         };
         
         window.addEventListener('local-media-ready', connectWhenReady);
+        pendingEventListeners.add(connectWhenReady); // Track for cleanup
       }
     };
 
@@ -315,6 +318,12 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
       window.removeEventListener('webrtc-stream-added', handleNewStream as EventListener);
       window.removeEventListener('webrtc-stream-removed', handleRemovedStream as EventListener);
       window.removeEventListener('webrtc-track-issue', handleTrackIssue as EventListener);
+      
+      // Clean up any pending 'local-media-ready' event listeners to prevent memory leaks
+      pendingEventListeners.forEach(listener => {
+        window.removeEventListener('local-media-ready', listener);
+      });
+      pendingEventListeners.clear();
       
       // Remove socket listeners
       socket.off('user-joined', handleUserJoined);
