@@ -9,9 +9,9 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        background: 'var(--background)',
-        foreground: 'var(--foreground)',
-        border: 'var(--border)',
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        border: 'hsl(var(--border))',
         primary: {
           DEFAULT: '#3B82F6', // blue-500
           '50': '#EFF6FF',
