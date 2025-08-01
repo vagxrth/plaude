@@ -1,4 +1,7 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
@@ -6,6 +9,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-border: var(--border);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -23,7 +27,6 @@
   --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
   --color-input: var(--input);
-  --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
@@ -99,9 +102,9 @@
 
 /* Glass morphism effect */
 .glass-morphism {
-  @apply backdrop-blur-xl border shadow-[0_4px_12px_-2px_rgba(0,0,0,0.3)];
-  @apply dark:bg-[#1A1F2C]/80 dark:border-white/10 dark:text-white;
-  @apply bg-white/90 border-black/5 text-gray-900;
+  @apply border shadow-[0_4px_12px_-2px_rgba(0,0,0,0.3)];
+  @apply dark:bg-[#1A1F2C] dark:bg-opacity-80 dark:border-white dark:border-opacity-10 dark:text-white;
+  @apply bg-white bg-opacity-90 border-black border-opacity-5 text-gray-900;
 }
 
 :root {
@@ -182,10 +185,6 @@
   }
 }
 
-/* @tailwind base;
-@tailwind components; */
-@tailwind utilities;
-
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -200,7 +199,7 @@
 
 @layer components {
   .neo-card {
-    @apply bg-black/20 backdrop-blur-xl border border-white/10 shadow-2xl;
+    @apply bg-black bg-opacity-20 border border-white border-opacity-10 shadow-2xl;
   }
 
   .card-divider {
@@ -214,7 +213,7 @@
   .btn-glow::before {
     content: '';
     @apply absolute inset-0 rounded-lg opacity-0 transition-opacity;
-    box-shadow: 0 0 25px 3px theme('colors.blue.400/20');
+    box-shadow: 0 0 25px 3px rgba(96, 165, 250, 0.2);
   }
 
   .btn-glow:hover::before {
