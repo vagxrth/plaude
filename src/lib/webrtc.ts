@@ -57,6 +57,11 @@ const activeStreams = new Set<MediaStream>();
 // Buffer ICE candidates that arrive before the remote description is set
 const pendingIceCandidates = new Map<string, RTCIceCandidateInit[]>();
 
+// Track which peer connections have completed their initial negotiation.
+// onnegotiationneeded is suppressed until the first offer/answer exchange
+// finishes, preventing it from racing with setRemoteDescription.
+const initialNegotiationDone = new Set<string>();
+
 // Flush buffered ICE candidates after remote description is set
 const flushPendingIceCandidates = async (userId: string) => {
   const candidates = pendingIceCandidates.get(userId);
@@ -552,6 +557,9 @@ export const initializeWebRTC = (
           roomId: videoContext.roomId,
           senderName: videoContext.userName
         });
+
+        // Mark initial negotiation as done so onnegotiationneeded can fire for renegotiation
+        initialNegotiationDone.add(senderId);
       } catch (e) {
         console.error(`Error during offer/answer process with ${senderName}:`, e);
         
@@ -580,6 +588,8 @@ export const initializeWebRTC = (
               roomId: videoContext.roomId,
               senderName: videoContext.userName
             });
+
+            initialNegotiationDone.add(senderId);
           } catch (retryError) {
             console.error(`Error during retry with ${senderName}:`, retryError);
           }
@@ -819,12 +829,16 @@ const createPeerConnection = (userId: string, userName: string) => {
       console.log(`Signaling state for ${userName}: ${peerConnection.signalingState}`);
     };
     
-    // Handle negotiation needed events
+    // Handle negotiation needed events — only allow renegotiation after the
+    // initial offer/answer exchange is complete.  Firing createOffer during
+    // the first exchange races with setRemoteDescription and causes a
+    // cascade of peer-connection recreation that can black-out local video.
     peerConnection.onnegotiationneeded = () => {
       console.log(`Negotiation needed for ${userName}`);
-      // We should handle renegotiation here
-      if (videoContext.socket && videoContext.localStream) {
+      if (initialNegotiationDone.has(userId) && videoContext.socket && videoContext.localStream) {
         createOffer(userId);
+      } else {
+        console.log(`[WEBRTC] Suppressing onnegotiationneeded for ${userName} (initial negotiation not yet complete)`);
       }
     };
     
@@ -1015,7 +1029,10 @@ const createOffer = async (userId: string) => {
     
     // Send the offer to the peer
     videoContext.socket.emit('webrtc-offer', offerData);
-    
+
+    // Mark initial negotiation as done so onnegotiationneeded can fire for renegotiation
+    initialNegotiationDone.add(userId);
+
     // We don't immediately resend offers; we wait for a response or timeout
     const retryDelay = 8000; // 8 seconds
     setTimeout(() => {
@@ -1087,8 +1104,9 @@ const createOffer = async (userId: string) => {
 const cleanupSingleConnection = (userId: string) => {
   console.log(`Cleaning up connection for user ${userId}`);
 
-  // Clean up buffered ICE candidates
+  // Clean up buffered ICE candidates and negotiation tracking
   pendingIceCandidates.delete(userId);
+  initialNegotiationDone.delete(userId);
 
   const connection = videoContext.peerConnections.get(userId);
   if (connection) {
@@ -1116,8 +1134,9 @@ const cleanupSingleConnection = (userId: string) => {
 export const cleanupConnections = () => {
   console.log('Cleaning up all WebRTC connections');
 
-  // Clear all buffered ICE candidates
+  // Clear all buffered ICE candidates and negotiation tracking
   pendingIceCandidates.clear();
+  initialNegotiationDone.clear();
 
   // Close all peer connections
   videoContext.peerConnections.forEach((connection, userId) => {
