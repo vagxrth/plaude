@@ -16,10 +16,10 @@ export default function Home() {
     router.push('/chat');
   };
 
-  // const handleVideoClick = () => {
-  //   setIsLoading(true);
-  //   router.push('/video');
-  // };
+  const handleVideoClick = () => {
+    setIsLoading(true);
+    router.push('/video');
+  };
 
   return (
     <section className="relative min-h-screen flex flex-col items-center justify-center px-6 overflow-hidden bg-background">
@@ -67,7 +67,8 @@ export default function Home() {
             text="Video"
             icon={Video}
             className="w-full max-w-md bg-purple-600 hover:bg-purple-700"
-            onClick={() => router.push("/video")}
+            onClick={handleVideoClick}
+            disabled={isLoading}
           />
         </div>
       </div>
