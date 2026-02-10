@@ -537,6 +537,7 @@ app.prepare().then(() => {
         io.to(receiverId).emit('webrtc-answer', {
           answer,
           senderId: socket.id,
+          senderName,
         });
       } catch (error) {
         console.error('[Server] Error in webrtc-answer:', error);

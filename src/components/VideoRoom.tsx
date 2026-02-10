@@ -26,6 +26,10 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const [isLocalMediaReady, setIsLocalMediaReady] = useState(false);
+
+  // Refs to avoid stale closures in socket handlers
+  const isLocalMediaReadyRef = useRef(false);
+  const localStreamRef = useRef<MediaStream | null>(null);
   
   // Function to create a video element
   const createVideoElement = useCallback(() => {
@@ -47,6 +51,15 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
     return videoElement;
   }, []);
   
+  // Keep refs in sync with state so socket handlers always see current values
+  useEffect(() => {
+    isLocalMediaReadyRef.current = isLocalMediaReady;
+  }, [isLocalMediaReady]);
+
+  useEffect(() => {
+    localStreamRef.current = localStream;
+  }, [localStream]);
+
   // Initialize local stream and WebRTC connections
   useEffect(() => {
     console.log('VideoRoom component mounted, setting up media...');
@@ -183,21 +196,21 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
     window.addEventListener('webrtc-stream-removed', handleRemovedStream as EventListener);
     window.addEventListener('webrtc-track-issue', handleTrackIssue as EventListener);
     
-    // Handle when other users join 
+    // Handle when other users join
     const handleUserJoined = (data: { user: { id: string, name: string }, users: Array<{ id: string, name: string }> }) => {
       const { user } = data;
       console.log(`User joined: ${user.name} (${user.id})`);
-      
-      // Only proceed if we have our media ready
-      if (isLocalMediaReady && localStream) {
+
+      // Only proceed if we have our media ready (use refs for current values)
+      if (isLocalMediaReadyRef.current && localStreamRef.current) {
         console.log(`Local media ready, establishing connection with ${user.name}`);
-        
+
         // Emit ready status to the new user
         socket.emit('user-ready', { userId: user.id, roomId });
-        
+
         // Notify that we have media ready
         socket.emit('user-media-ready', { userId: user.id, roomId });
-        
+
         // Wait to ensure both sides are ready, then initiate connection
         setTimeout(() => {
           console.log(`Initiating WebRTC connection with ${user.name}`);
@@ -205,10 +218,10 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
         }, 500); // Reduced delay for better responsiveness
       } else {
         console.log(`Local media not ready yet, will connect with ${user.name} once ready`);
-        
+
         // Store this user to connect later when media is ready
         const connectWhenReady = () => {
-          if (isLocalMediaReady && localStream) {
+          if (isLocalMediaReadyRef.current && localStreamRef.current) {
             console.log(`Local media became ready, connecting to ${user.name}`);
             socket.emit('user-ready', { userId: user.id, roomId });
             socket.emit('user-media-ready', { userId: user.id, roomId });
@@ -219,7 +232,7 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
             pendingEventListeners.delete(connectWhenReady); // Remove from tracking
           }
         };
-        
+
         window.addEventListener('local-media-ready', connectWhenReady);
         pendingEventListeners.add(connectWhenReady); // Track for cleanup
       }
@@ -229,19 +242,19 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
     const handleUserMediaReady = (data: { userId: string, userName: string, roomId: string }) => {
       console.log(`[CLIENT] User media ready event received:`, data);
       console.log(`[CLIENT] My socket ID: ${socket.id}, Their ID: ${data.userId}`);
-      console.log(`[CLIENT] Local media ready: ${isLocalMediaReady}, Local stream: ${!!localStream}`);
-      
+      console.log(`[CLIENT] Local media ready: ${isLocalMediaReadyRef.current}, Local stream: ${!!localStreamRef.current}`);
+
       // If we also have our media ready and haven't established a connection yet, try to connect
-      if (isLocalMediaReady && localStream) {
+      if (isLocalMediaReadyRef.current && localStreamRef.current) {
         console.log(`[CLIENT] Both users have media ready, attempting connection with ${data.userName}`);
-        
+
         // Use a small delay and check if we should be the one to initiate
         setTimeout(() => {
           // Use socket IDs to determine who should initiate (lower ID initiates)
           const shouldInitiate = socket.id && socket.id < data.userId;
-          
+
           console.log(`[CLIENT] Should I initiate? ${shouldInitiate} (My ID: ${socket.id}, Their ID: ${data.userId})`);
-          
+
           if (shouldInitiate) {
             console.log(`[CLIENT] Initiating connection with ${data.userName} (I have lower socket ID)`);
             socket.emit('initiate-connection', { targetUserId: data.userId, roomId });
@@ -250,7 +263,7 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
           }
         }, 500);
       } else {
-        console.log(`[CLIENT] Cannot connect yet - Local media ready: ${isLocalMediaReady}, Local stream: ${!!localStream}`);
+        console.log(`[CLIENT] Cannot connect yet - Local media ready: ${isLocalMediaReadyRef.current}, Local stream: ${!!localStreamRef.current}`);
       }
     };
 
@@ -258,22 +271,22 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
     const handleRoomUsersResponse = (data: { roomId: string, users: Array<{ id: string, name: string }> }) => {
       console.log(`[CLIENT] Room users response:`, data);
       console.log(`[CLIENT] My socket ID: ${socket.id}`);
-      console.log(`[CLIENT] Local media ready: ${isLocalMediaReady}, Local stream: ${!!localStream}`);
-      
-      if (isLocalMediaReady && localStream && data.users.length > 0) {
+      console.log(`[CLIENT] Local media ready: ${isLocalMediaReadyRef.current}, Local stream: ${!!localStreamRef.current}`);
+
+      if (isLocalMediaReadyRef.current && localStreamRef.current && data.users.length > 0) {
         // Attempt to connect with each existing user
         data.users.forEach((user, index) => {
           setTimeout(() => {
             console.log(`[CLIENT] Processing existing user: ${user.name} (${user.id})`);
-            
+
             // Notify that we have media ready
             socket.emit('user-media-ready', { userId: user.id, roomId });
-            
+
             // Use socket IDs to determine who should initiate (lower ID initiates)
             const shouldInitiate = socket.id && socket.id < user.id;
-            
+
             console.log(`[CLIENT] Should I initiate with existing user? ${shouldInitiate} (My ID: ${socket.id}, Their ID: ${user.id})`);
-            
+
             if (shouldInitiate) {
               console.log(`[CLIENT] Initiating connection with existing user ${user.name} (I have lower socket ID)`);
               socket.emit('initiate-connection', { targetUserId: user.id, roomId });
@@ -283,7 +296,7 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
           }, index * 1000); // Stagger connections to avoid overwhelming
         });
       } else {
-        console.log(`[CLIENT] Cannot connect to existing users - Media ready: ${isLocalMediaReady}, Stream: ${!!localStream}, Users: ${data.users.length}`);
+        console.log(`[CLIENT] Cannot connect to existing users - Media ready: ${isLocalMediaReadyRef.current}, Stream: ${!!localStreamRef.current}, Users: ${data.users.length}`);
       }
     };
     
@@ -334,7 +347,6 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
       // Clean up connections
       cleanupConnections();
     };
-    //eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, roomId, userName, isVideoEnabled, isAudioEnabled, createVideoElement]);
   
   // Track if we've already announced our media readiness to prevent loops

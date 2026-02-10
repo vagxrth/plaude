@@ -54,6 +54,29 @@ let permissionsGranted = false;
 // Keep a global reference to avoid garbage collection
 const activeStreams = new Set<MediaStream>();
 
+// Buffer ICE candidates that arrive before the remote description is set
+const pendingIceCandidates = new Map<string, RTCIceCandidateInit[]>();
+
+// Flush buffered ICE candidates after remote description is set
+const flushPendingIceCandidates = async (userId: string) => {
+  const candidates = pendingIceCandidates.get(userId);
+  if (!candidates || candidates.length === 0) return;
+
+  const peerConnection = videoContext.peerConnections.get(userId)?.connection;
+  if (!peerConnection || !peerConnection.remoteDescription) return;
+
+  console.log(`[WEBRTC] Flushing ${candidates.length} buffered ICE candidates for ${userId}`);
+  pendingIceCandidates.delete(userId);
+
+  for (const candidate of candidates) {
+    try {
+      await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (e) {
+      console.error(`[WEBRTC] Error adding buffered ICE candidate for ${userId}:`, e);
+    }
+  }
+};
+
 // Add these functions for debugging and improved stream handling
 
 // Log stream information
@@ -506,7 +529,10 @@ export const initializeWebRTC = (
       try {
         // Set the remote description
         await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-        
+
+        // Flush any ICE candidates that arrived before the remote description was set
+        await flushPendingIceCandidates(senderId);
+
         // Create an answer
         const answer = await peerConnection.createAnswer();
         
@@ -543,6 +569,7 @@ export const initializeWebRTC = (
           // Try the process again
           try {
             await newPeerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+            await flushPendingIceCandidates(senderId);
             const newAnswer = await newPeerConnection.createAnswer();
             await newPeerConnection.setLocalDescription(newAnswer);
             
@@ -579,6 +606,8 @@ export const initializeWebRTC = (
         
         if (currentState === 'have-local-offer') {
           await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+          // Flush any ICE candidates that arrived before the remote description was set
+          await flushPendingIceCandidates(senderId);
         } else {
           console.warn(`Cannot set remote description in ${currentState} state`);
         }
@@ -594,17 +623,17 @@ export const initializeWebRTC = (
   socket.on('webrtc-ice-candidate', async ({ candidate, senderId, senderName }) => {
     try {
       const peerConnection = videoContext.peerConnections.get(senderId)?.connection;
-      
-      if (peerConnection) {
-        // Only add candidates after setting remote description
-        if (peerConnection.remoteDescription) {
-          console.log(`Adding ICE candidate from ${senderName}`);
-          await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-        } else {
-          console.log(`Received ICE candidate from ${senderName} but remote description not set yet`);
-        }
+
+      if (peerConnection && peerConnection.remoteDescription) {
+        console.log(`Adding ICE candidate from ${senderName}`);
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
       } else {
-        console.warn(`Received ICE candidate from ${senderName} but no peer connection found`);
+        // Buffer the candidate until remote description is set
+        console.log(`[WEBRTC] Buffering ICE candidate from ${senderName} (pc=${!!peerConnection}, remoteDesc=${!!peerConnection?.remoteDescription})`);
+        if (!pendingIceCandidates.has(senderId)) {
+          pendingIceCandidates.set(senderId, []);
+        }
+        pendingIceCandidates.get(senderId)!.push(candidate);
       }
     } catch (e) {
       console.error(`Error handling ICE candidate from ${senderName}:`, e);
@@ -955,10 +984,7 @@ const createOffer = async (userId: string) => {
     
     // Set local description - must happen before sending offer
     await peerConnection.connection.setLocalDescription(offer);
-    
-    // Wait a short moment to ensure local description is set
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
+
     // Verify that userId and other required parameters are not undefined
     if (!userId || !videoContext.roomId || !videoContext.socket || !videoContext.userName) {
       console.error('Cannot send offer: Missing required data', {
@@ -1060,7 +1086,10 @@ const createOffer = async (userId: string) => {
 // Helper function to clean up a single connection
 const cleanupSingleConnection = (userId: string) => {
   console.log(`Cleaning up connection for user ${userId}`);
-  
+
+  // Clean up buffered ICE candidates
+  pendingIceCandidates.delete(userId);
+
   const connection = videoContext.peerConnections.get(userId);
   if (connection) {
     // Close the RTCPeerConnection
@@ -1086,7 +1115,10 @@ const cleanupSingleConnection = (userId: string) => {
 // Clean up all WebRTC connections
 export const cleanupConnections = () => {
   console.log('Cleaning up all WebRTC connections');
-  
+
+  // Clear all buffered ICE candidates
+  pendingIceCandidates.clear();
+
   // Close all peer connections
   videoContext.peerConnections.forEach((connection, userId) => {
     console.log(`Closing connection to ${connection.userName} (${userId})`);
