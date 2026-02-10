@@ -17,25 +17,10 @@ const VideoStream = ({ stream, userName, muted = false, isLocal = false }: Video
   const [useCanvas, setUseCanvas] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
   const animationRef = useRef<number | null>(null);
-  const [refsReady, setRefsReady] = useState(false);
 
   useEffect(() => {
     setIsMuted(muted);
   }, [muted]);
-
-  // Ensure refs are available
-  useEffect(() => {
-    // Short timeout to ensure the DOM has rendered
-    const timer = setTimeout(() => {
-      if (videoRef.current && canvasRef.current) {
-        setRefsReady(true);
-      } else {
-        console.warn(`Refs not ready for ${isLocal ? 'local' : userName} video, will retry`);
-      }
-    }, 100);
-    
-    return () => clearTimeout(timer);
-  }, [isLocal, userName]);
 
   // Canvas rendering function
   const renderCanvas = useCallback(() => {
@@ -54,311 +39,198 @@ const VideoStream = ({ stream, userName, muted = false, isLocal = false }: Video
 
   // Start/stop canvas rendering
   useEffect(() => {
-    if (useCanvas && refsReady) {
+    if (useCanvas) {
       renderCanvas();
     }
-    
+
     return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
         animationRef.current = null;
       }
     };
-  }, [useCanvas, renderCanvas, refsReady]);
+  }, [useCanvas, renderCanvas]);
 
-  // Listen for track changes
+  // Main effect: attach stream to video element, manage playback, listen for
+  // track events, and run a periodic watchdog that retries play() and
+  // refreshes track status.  Deps intentionally exclude isVideoLoaded and
+  // useCanvas so the effect only re-runs when the stream itself changes.
   useEffect(() => {
-    const handleTracksChanged = () => {
-      console.log(`Track change event received for ${isLocal ? 'local' : userName} video`);
-      updateVideoStatus();
-    };
-
-    const updateVideoStatus = () => {
-      if (!stream) {
-        setHasAudio(false);
-        setHasVideo(false);
-        return;
-      }
-      
-      try {
-        // Check if we have audio/video tracks
-        const audioTracks = stream.getAudioTracks();
-        const videoTracks = stream.getVideoTracks();
-        
-        setHasAudio(audioTracks.length > 0 && audioTracks[0].enabled);
-        setHasVideo(videoTracks.length > 0 && videoTracks[0].enabled);
-      } catch (err) {
-        console.error(`Error checking track status for ${isLocal ? 'local' : userName}:`, err);
-      }
-    };
-
-    window.addEventListener('webrtc-tracks-changed', handleTracksChanged);
-    
-    return () => {
-      window.removeEventListener('webrtc-tracks-changed', handleTracksChanged);
-    };
-  }, [stream, isLocal, userName]);
-
-  // Handle stream changes
-  useEffect(() => {
-    // Only proceed if refs are ready and we have a stream
-    if (!refsReady) {
-      return;
-    }
-    
     const videoElement = videoRef.current;
     const canvasElement = canvasRef.current;
-    
-    if (!videoElement || !canvasElement) {
-      console.error(`Video or canvas element for ${isLocal ? 'local' : userName} not available for stream even after refs check`);
-      return;
-    }
-    
-    // Set canvas size to match video container
+
+    if (!videoElement || !canvasElement) return;
+
     canvasElement.width = videoElement.clientWidth || 640;
     canvasElement.height = videoElement.clientHeight || 480;
-    
-    console.log(`Setting up video for ${isLocal ? 'local' : userName}, stream:`, stream ? 'exists' : 'null');
-    
-    const updateVideoStatus = () => {
-      if (!stream) {
-        console.log(`No stream for ${isLocal ? 'local' : userName}, disabling audio/video`);
-        setHasAudio(false);
-        setHasVideo(false);
-        setIsVideoLoaded(false);
-        return;
+
+    // ---- no stream ------------------------------------------------
+    if (!stream) {
+      if (videoElement.srcObject) {
+        videoElement.srcObject = null;
       }
-      
+      setIsVideoLoaded(false);
+      setHasAudio(false);
+      setHasVideo(false);
+      setUseCanvas(false);
+      return;
+    }
+
+    // ---- helpers ---------------------------------------------------
+    const label = isLocal ? 'local' : userName;
+
+    const updateTrackStatus = () => {
+      if (!stream) return;
       try {
-        // Check if we have audio/video tracks
         const audioTracks = stream.getAudioTracks();
         const videoTracks = stream.getVideoTracks();
-        
-        setHasAudio(audioTracks.length > 0 && audioTracks[0].enabled);
-        setHasVideo(videoTracks.length > 0 && videoTracks[0].enabled);
-        
-        // Log track information for debugging
-        console.log(`Stream ${isLocal ? '(local)' : userName} tracks:`, {
-          audioTracks: audioTracks.length,
-          videoTracks: videoTracks.length,
-          audio: audioTracks.map(t => ({ 
-            enabled: t.enabled, 
-            muted: t.muted, 
-            id: t.id,
-            label: t.label 
-          })),
-          video: videoTracks.map(t => ({ 
-            enabled: t.enabled, 
-            muted: t.muted, 
-            id: t.id,
-            label: t.label
-          }))
-        });
+        // Consider both enabled AND muted — a muted track produces black frames
+        setHasAudio(audioTracks.length > 0 && audioTracks[0].enabled && !audioTracks[0].muted);
+        setHasVideo(videoTracks.length > 0 && videoTracks[0].enabled && !videoTracks[0].muted);
       } catch (err) {
-        console.error(`Error checking track status for ${isLocal ? 'local' : userName}:`, err);
+        console.error(`Error checking track status for ${label}:`, err);
       }
     };
-    
-    // Set up video stream
-    if (stream) {
-      console.log(`Attaching stream to video element for ${isLocal ? 'local' : userName}`);
-      
-      try {
-        // Only set srcObject if it's a different stream or null
-        const currentSrcObj = videoElement.srcObject;
-        const srcNeedsUpdate = currentSrcObj === null || 
-                              (currentSrcObj instanceof MediaStream && 
-                               currentSrcObj.id !== stream.id);
-        
-        if (srcNeedsUpdate) {
-          console.log(`Setting new srcObject for ${isLocal ? 'local' : userName}`);
-          videoElement.srcObject = stream;
-          setVideoError(null);
-        } else {
-          console.log(`Reusing existing srcObject for ${isLocal ? 'local' : userName}`);
-        }
-        
-        // Setup error handler
-        videoElement.onerror = (e) => {
-          console.error(`Error with video element for ${isLocal ? 'local' : userName}:`, e);
-          setVideoError(`Video error: ${e}`);
-          
-          // Try canvas as fallback
-          if (!useCanvas) {
-            console.log('Switching to canvas rendering as fallback');
-            setUseCanvas(true);
-          }
-        };
-        
-        updateVideoStatus();
-        
-        // Listen for track events
-        stream.addEventListener('addtrack', updateVideoStatus);
-        stream.addEventListener('removetrack', updateVideoStatus);
-        
-        // Handle video loaded
-        const handleMetadataLoaded = () => {
-          console.log(`Video metadata loaded for ${isLocal ? 'local' : userName}`);
-          setIsVideoLoaded(true);
-          
-          // Only attempt to play if video is paused
-          if (videoElement.paused) {
-            console.log(`Attempting to play video for ${isLocal ? 'local' : userName}`);
-            
-            // Use a Promise with a timeout to prevent hanging
-            const playPromise = videoElement.play();
-            
-            if (playPromise !== undefined) {
-              playPromise
-                .then(() => {
-                  console.log(`Video playback started for ${isLocal ? 'local' : userName}`);
-                })
-                .catch(e => {
-                  console.error(`Error playing video for ${isLocal ? 'local' : userName}:`, e);
-                  
-                  // Try again with user interaction
-                  setVideoError("Video failed to play automatically. Click the video area to enable.");
-                  
-                  // Set video to be muted which helps with autoplay
-                  if (!isLocal && !videoElement.muted) {
-                    videoElement.muted = true;
-                    console.log(`Video has been muted to try again for ${userName}`);
-                    
-                    videoElement.play().catch(e2 => {
-                      console.error(`Even muted, video failed to play:`, e2);
-                      
-                      // Try canvas as fallback
-                      if (!useCanvas) {
-                        console.log('Switching to canvas rendering as fallback');
-                        setUseCanvas(true);
-                      }
-                    });
-                  }
-                });
-            }
-          }
-        };
-        
-        // Set event handler only if we need to
-        if (!isVideoLoaded && srcNeedsUpdate) {
-          videoElement.onloadedmetadata = handleMetadataLoaded;
-        } else if (isVideoLoaded && videoElement.paused) {
-          // Try to play immediately if we're already loaded but paused
-          handleMetadataLoaded();
-        }
-        
-        // Sometimes onloadedmetadata doesn't fire, add a safety timeout
-        const metadataTimeout = setTimeout(() => {
-          if (!isVideoLoaded && videoElement.paused) {
-            console.warn(`Metadata timeout for ${isLocal ? 'local' : userName}, forcing play attempt`);
-            
-            // Force a play attempt even without metadata loaded
-            videoElement.play().catch(e => {
-              console.error(`Forced play attempt failed:`, e);
-              
-              // Try canvas as fallback
-              if (!useCanvas) {
-                console.log('Switching to canvas rendering as fallback after timeout');
-                setUseCanvas(true);
-              }
-            });
-              
-            setIsVideoLoaded(true);
-          }
-        }, 2000);
-        
-        return () => {
-          clearTimeout(metadataTimeout);
-        };
-        
-      } catch (e) {
-        console.error(`Error setting video source for ${isLocal ? 'local' : userName}:`, e);
-        setVideoError(`Failed to display video: ${e}`);
-        
-        // Try canvas as fallback
-        if (!useCanvas) {
-          console.log('Switching to canvas rendering as fallback after error');
-          setUseCanvas(true);
-        }
-      }
-    } else {
-      console.log(`No stream available for ${isLocal ? 'local' : userName}`);
-      try {
-        if (videoElement.srcObject !== null) {
-          videoElement.srcObject = null;
-          setIsVideoLoaded(false);
-          setUseCanvas(false);
-        }
-      } catch (e) {
-        console.error('Error clearing video source:', e);
-      }
-      updateVideoStatus();
-    }
-    
-    return () => {
-      if (stream) {
-        stream.removeEventListener('addtrack', updateVideoStatus);
-        stream.removeEventListener('removetrack', updateVideoStatus);
-      }
-      
-      if (videoElement) {
-        videoElement.onloadedmetadata = null;
-        videoElement.onerror = null;
-        
-        try {
-          // Clean up video element on unmount
-          const playPromise = videoElement.play();
-          if (playPromise !== undefined) {
-            playPromise.then(() => {
-              videoElement.pause();
-              if (!isLocal) { // Don't clear local video on remount
-                videoElement.srcObject = null;
-              }
-            }).catch(() => {
-              if (!isLocal) { // Don't clear local video on remount
-                videoElement.srcObject = null;
-              }
-            });
-          }
-        } catch (e) {
-          console.error(`Error cleaning up video for ${isLocal ? 'local' : userName}:`, e);
-        }
-      }
-      
-      // Clean up animation frame
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-        animationRef.current = null;
-      }
-    };
-  }, [stream, userName, isLocal, isVideoLoaded, useCanvas, refsReady]);
 
-  // Handle clicks on the video container to try playing if autoplay failed
-  const handleVideoContainerClick = () => {
-    if (videoError && videoRef.current) {
-      console.log(`User clicked video container for ${isLocal ? 'local' : userName}, trying to play`);
-      videoRef.current.play()
+    const tryPlay = () => {
+      if (!videoElement.srcObject) return;
+      if (!videoElement.paused) {
+        setIsVideoLoaded(true);
+        return;
+      }
+      videoElement.play()
         .then(() => {
-          console.log(`Video playback started after click for ${isLocal ? 'local' : userName}`);
+          console.log(`Video playback started for ${label}`);
+          setIsVideoLoaded(true);
           setVideoError(null);
         })
         .catch(e => {
-          console.error(`Even after click, video failed to play:`, e);
-          
-          // Try canvas as fallback
-          if (!useCanvas) {
-            console.log('Switching to canvas rendering as fallback after click attempt');
-            setUseCanvas(true);
+          console.error(`Play failed for ${label}:`, e);
+          // For remote (non-muted) video, retry muted to satisfy autoplay policy
+          if (!isLocal && !videoElement.muted) {
+            videoElement.muted = true;
+            videoElement.play()
+              .then(() => { setIsVideoLoaded(true); setVideoError(null); })
+              .catch(() => {
+                setVideoError('Video failed to play automatically. Click the video area to enable.');
+              });
+          } else {
+            setVideoError('Video failed to play automatically. Click the video area to enable.');
           }
+        });
+    };
+
+    // ---- attach stream --------------------------------------------
+    const currentSrc = videoElement.srcObject;
+    const srcNeedsUpdate = !currentSrc ||
+      (currentSrc instanceof MediaStream && currentSrc.id !== stream.id);
+
+    if (srcNeedsUpdate) {
+      console.log(`Setting srcObject for ${label}`);
+      videoElement.srcObject = stream;
+      setVideoError(null);
+      setIsVideoLoaded(false);
+    }
+
+    // Error handler
+    videoElement.onerror = () => {
+      console.error(`Video element error for ${label}`);
+      setVideoError('Video error');
+      setUseCanvas(true);
+    };
+
+    updateTrackStatus();
+
+    // ---- metadata / play ------------------------------------------
+    videoElement.onloadedmetadata = () => {
+      console.log(`Metadata loaded for ${label}`);
+      setIsVideoLoaded(true);
+      tryPlay();
+    };
+
+    // Immediate play attempt (stream may already have metadata)
+    tryPlay();
+
+    // ---- stream track events --------------------------------------
+    stream.addEventListener('addtrack', updateTrackStatus);
+    stream.addEventListener('removetrack', updateTrackStatus);
+
+    // Track-level mute/unmute listeners
+    const videoTrack = stream.getVideoTracks()[0] ?? null;
+    const audioTrack = stream.getAudioTracks()[0] ?? null;
+
+    const handleTrackMute = () => updateTrackStatus();
+    const handleTrackUnmute = () => { updateTrackStatus(); tryPlay(); };
+
+    videoTrack?.addEventListener('mute', handleTrackMute);
+    videoTrack?.addEventListener('unmute', handleTrackUnmute);
+    audioTrack?.addEventListener('mute', handleTrackMute);
+    audioTrack?.addEventListener('unmute', handleTrackUnmute);
+
+    // Global track-change events from webrtc.ts heartbeat
+    const handleGlobalTrackChange = () => updateTrackStatus();
+    window.addEventListener('webrtc-tracks-changed', handleGlobalTrackChange);
+
+    // ---- watchdog: periodic play-retry & status refresh -----------
+    const watchdog = window.setInterval(() => {
+      updateTrackStatus();
+      if (videoElement.paused && videoElement.srcObject) {
+        console.log(`Watchdog: video paused for ${label}, retrying play`);
+        tryPlay();
+      }
+    }, 3000);
+
+    // ---- unified cleanup ------------------------------------------
+    return () => {
+      window.clearInterval(watchdog);
+
+      stream.removeEventListener('addtrack', updateTrackStatus);
+      stream.removeEventListener('removetrack', updateTrackStatus);
+
+      videoTrack?.removeEventListener('mute', handleTrackMute);
+      videoTrack?.removeEventListener('unmute', handleTrackUnmute);
+      audioTrack?.removeEventListener('mute', handleTrackMute);
+      audioTrack?.removeEventListener('unmute', handleTrackUnmute);
+
+      window.removeEventListener('webrtc-tracks-changed', handleGlobalTrackChange);
+
+      videoElement.onloadedmetadata = null;
+      videoElement.onerror = null;
+
+      if (!isLocal) {
+        videoElement.srcObject = null;
+      }
+
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
+    };
+  }, [stream, userName, isLocal]);
+
+  // Handle clicks on the video container to try playing if autoplay failed
+  const handleVideoContainerClick = () => {
+    const videoElement = videoRef.current;
+    if (!videoElement || !stream) return;
+
+    if (videoError || videoElement.paused) {
+      console.log(`User clicked video for ${isLocal ? 'local' : userName}, trying to play`);
+      videoElement.play()
+        .then(() => {
+          setIsVideoLoaded(true);
+          setVideoError(null);
+        })
+        .catch(e => {
+          console.error(`Play after click failed:`, e);
+          setUseCanvas(true);
         });
     }
   };
 
   return (
-    <div 
+    <div
       className="relative overflow-hidden rounded-lg bg-gray-800 aspect-video"
       onClick={handleVideoContainerClick}
-      data-ready={refsReady ? "true" : "false"}
     >
       {/* Placeholder when video is not active */}
       {(!hasVideo || !isVideoLoaded || !stream) && (
@@ -368,7 +240,7 @@ const VideoStream = ({ stream, userName, muted = false, isLocal = false }: Video
           </div>
         </div>
       )}
-      
+
       {/* Video error message */}
       {videoError && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-10">
@@ -378,22 +250,22 @@ const VideoStream = ({ stream, userName, muted = false, isLocal = false }: Video
           </div>
         </div>
       )}
-      
+
       {/* Canvas fallback */}
       <canvas
         ref={canvasRef}
         className={`w-full h-full object-cover absolute inset-0 ${!hasVideo || !stream || !useCanvas ? 'invisible' : 'visible'}`}
       />
-      
+
       {/* Actual video element */}
       <video
         ref={videoRef}
         className={`w-full h-full object-cover ${!hasVideo || !stream ? 'invisible' : 'visible'} ${useCanvas ? 'hidden' : ''}`}
         autoPlay
         playsInline
-        muted={isMuted || isLocal} // Always mute local video to prevent feedback
+        muted={isMuted || isLocal}
       />
-      
+
       {/* Status bar */}
       <div className="absolute bottom-2 left-2 right-2 flex justify-between items-center bg-black/50 px-3 py-1 rounded text-white text-sm">
         <span className="truncate">{isLocal ? 'You' : userName}</span>
@@ -410,4 +282,4 @@ const VideoStream = ({ stream, userName, muted = false, isLocal = false }: Video
   );
 };
 
-export default VideoStream; 
+export default VideoStream;
