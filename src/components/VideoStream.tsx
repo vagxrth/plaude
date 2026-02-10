@@ -106,16 +106,19 @@ const VideoStream = ({ stream, userName, muted = false, isLocal = false }: Video
         })
         .catch(e => {
           console.error(`Play failed for ${label}:`, e);
-          // For remote (non-muted) video, retry muted to satisfy autoplay policy
-          if (!isLocal && !videoElement.muted) {
-            videoElement.muted = true;
-            videoElement.play()
-              .then(() => { setIsVideoLoaded(true); setVideoError(null); })
-              .catch(() => {
-                setVideoError('Video failed to play automatically. Click the video area to enable.');
-              });
+          // For remote video, retry muted to satisfy autoplay policy.
+          // Use React state so the click handler can restore audio later.
+          if (!isLocal && !isMuted) {
+            setIsMuted(true);
+            requestAnimationFrame(() => {
+              videoElement.play()
+                .then(() => { setIsVideoLoaded(true); setVideoError(null); })
+                .catch(() => {
+                  setVideoError('Video failed to play automatically. Click to enable.');
+                });
+            });
           } else {
-            setVideoError('Video failed to play automatically. Click the video area to enable.');
+            setVideoError('Video failed to play automatically. Click to enable.');
           }
         });
     };
@@ -206,6 +209,7 @@ const VideoStream = ({ stream, userName, muted = false, isLocal = false }: Video
         animationRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- isMuted intentionally excluded to avoid re-triggering the effect
   }, [stream, userName, isLocal]);
 
   // Handle clicks on the video container to try playing if autoplay failed
@@ -215,6 +219,8 @@ const VideoStream = ({ stream, userName, muted = false, isLocal = false }: Video
 
     if (videoError || videoElement.paused) {
       console.log(`User clicked video for ${isLocal ? 'local' : userName}, trying to play`);
+      // Restore audio if it was muted by the autoplay fallback
+      if (!isLocal) setIsMuted(muted);
       videoElement.play()
         .then(() => {
           setIsVideoLoaded(true);
