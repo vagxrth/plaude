@@ -63,12 +63,11 @@ export default function Home() {
             disabled={isLoading}
           />
           
-          <ActionButton 
-            text="Video - Coming Soon..." 
+          <ActionButton
+            text="Video"
             icon={Video}
             className="w-full max-w-md bg-purple-600 hover:bg-purple-700"
-            onClick={() => {}}
-            disabled={true}
+            onClick={() => router.push("/video")}
           />
         </div>
       </div>
