@@ -170,12 +170,25 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
           });
           initializeWebRTC(socket, roomId, userName, stream);
           console.log('[CLIENT] WebRTC initialized successfully');
-          
+
           setIsLocalMediaReady(true);
           setIsLoading(false);
-          
+
           // Dispatch a global event that we have a media stream ready
           window.dispatchEvent(new CustomEvent('local-media-ready'));
+
+          // Announce readiness and request room users so the server can
+          // send us initiate-connection events.  This MUST live inside
+          // setupMedia (not a separate useEffect) to guarantee it fires
+          // after every initializeWebRTC call — including across React
+          // strict-mode double-mounts where a second useEffect + guard
+          // state can get stuck.
+          setTimeout(() => {
+            if (mounted) {
+              socket.emit('user-media-ready', { roomId });
+              socket.emit('get-room-users', { roomId });
+            }
+          }, 500);
         }
       } catch (error) {
         console.error('Failed to setup media:', error);
@@ -344,27 +357,6 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- isVideoEnabled/isAudioEnabled intentionally excluded; toggling is handled by webrtc.ts on the existing stream, not by re-running setupMedia
   }, [socket, roomId, userName]);
-  
-  // Track if we've already announced our media readiness to prevent loops
-  const [hasAnnouncedReady, setHasAnnouncedReady] = useState(false);
-
-  // Effect to connect with existing users when our media is ready
-  useEffect(() => {
-    if (isLocalMediaReady && localStream && !hasAnnouncedReady) {
-      console.log('Local media ready, broadcasting to room and requesting existing users (ONCE)');
-      
-      // Mark that we've announced
-      setHasAnnouncedReady(true);
-      
-      // Small delay to ensure everything is set up
-      const timeout = setTimeout(() => {
-        socket.emit('user-media-ready', { roomId });
-        socket.emit('get-room-users', { roomId });
-      }, 500);
-      
-      return () => clearTimeout(timeout);
-    }
-  }, [isLocalMediaReady, localStream, hasAnnouncedReady, socket, roomId]);
   
   // Handle toggle audio
   const handleToggleAudio = () => {
