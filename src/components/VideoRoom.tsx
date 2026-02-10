@@ -342,7 +342,8 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
       // Clean up connections
       cleanupConnections();
     };
-  }, [socket, roomId, userName, isVideoEnabled, isAudioEnabled]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- isVideoEnabled/isAudioEnabled intentionally excluded; toggling is handled by webrtc.ts on the existing stream, not by re-running setupMedia
+  }, [socket, roomId, userName]);
   
   // Track if we've already announced our media readiness to prevent loops
   const [hasAnnouncedReady, setHasAnnouncedReady] = useState(false);
