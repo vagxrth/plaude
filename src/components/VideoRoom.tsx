@@ -148,24 +148,19 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
     const setupMedia = async () => {
       try {
         console.log('Setting up local media stream');
-        
-        // Create a video element for our local stream
-        const videoElement = createVideoElement();
-        
+
         // Get our local media stream
         const stream = await getLocalStream(isVideoEnabled, isAudioEnabled);
         
         if (stream) {
           // Set our local stream
           setLocalStream(stream);
-          
-          // Attach stream to video element
-          if (videoElement) {
-            videoElement.srcObject = stream;
-            videoElement.muted = true; // Mute local video to prevent feedback
-            videoElement.play().catch(e => console.error('Error playing local video:', e));
-          }
-          
+
+          // NOTE: Do NOT attach the stream to the detached videoElement here.
+          // The <VideoStream> component handles displaying the local stream.
+          // Playing the same getUserMedia stream on two video elements can cause
+          // the camera to produce black frames on some devices.
+
           // Initialize WebRTC with current socket and local stream
           console.log('[CLIENT] Local stream ready, initializing WebRTC');
           console.log('[CLIENT] Local stream details:', { 
@@ -347,7 +342,7 @@ export function VideoRoom({ socket, roomId, userName, onLeaveRoom }: VideoRoomPr
       // Clean up connections
       cleanupConnections();
     };
-  }, [socket, roomId, userName, isVideoEnabled, isAudioEnabled, createVideoElement]);
+  }, [socket, roomId, userName, isVideoEnabled, isAudioEnabled]);
   
   // Track if we've already announced our media readiness to prevent loops
   const [hasAnnouncedReady, setHasAnnouncedReady] = useState(false);

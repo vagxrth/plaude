@@ -84,9 +84,13 @@ const VideoStream = ({ stream, userName, muted = false, isLocal = false }: Video
       try {
         const audioTracks = stream.getAudioTracks();
         const videoTracks = stream.getVideoTracks();
-        // Consider both enabled AND muted — a muted track produces black frames
-        setHasAudio(audioTracks.length > 0 && audioTracks[0].enabled && !audioTracks[0].muted);
-        setHasVideo(videoTracks.length > 0 && videoTracks[0].enabled && !videoTracks[0].muted);
+        // For remote tracks, check both enabled AND muted (muted means ICE
+        // isn't flowing data, producing black frames).
+        // For local getUserMedia tracks, only check enabled — track.muted can
+        // briefly flip to true during browser state transitions, causing the
+        // video to hide and not resume properly.
+        setHasAudio(audioTracks.length > 0 && audioTracks[0].enabled && (isLocal || !audioTracks[0].muted));
+        setHasVideo(videoTracks.length > 0 && videoTracks[0].enabled && (isLocal || !videoTracks[0].muted));
       } catch (err) {
         console.error(`Error checking track status for ${label}:`, err);
       }
