@@ -57,10 +57,10 @@ const activeStreams = new Set<MediaStream>();
 // Buffer ICE candidates that arrive before the remote description is set
 const pendingIceCandidates = new Map<string, RTCIceCandidateInit[]>();
 
-// Track which peer connections have completed their initial negotiation.
-// onnegotiationneeded is suppressed until the first offer/answer exchange
-// finishes, preventing it from racing with setRemoteDescription.
-const initialNegotiationDone = new Set<string>();
+// Store reference to webrtc.ts's own user-left handler so we can remove it
+// without clobbering VideoRoom's handler for the same event.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _webrtcUserLeftHandler: ((...args: any[]) => void) | null = null;
 
 // Flush buffered ICE candidates after remote description is set
 const flushPendingIceCandidates = async (userId: string) => {
@@ -397,17 +397,22 @@ export const initializeWebRTC = (
     });
   }
   
-  // Clear any existing listeners to prevent duplicates
+  // Clear only webrtc.ts's own listeners to prevent duplicates.
+  // IMPORTANT: Do NOT call socket.off('user-joined') or socket.off('user-left')
+  // without a specific handler reference — that would remove VideoRoom's handlers
+  // for those events, breaking connection initiation.
   socket.off('initiate-connection');
-  socket.off('user-joined');
   socket.off('webrtc-offer');
   socket.off('webrtc-answer');
   socket.off('webrtc-ice-candidate');
-  socket.off('user-left');
+  if (_webrtcUserLeftHandler) {
+    socket.off('user-left', _webrtcUserLeftHandler);
+    _webrtcUserLeftHandler = null;
+  }
   socket.off('webrtc-renegotiate');
-  
+
   // Set up socket event listeners
-  
+
   // Handle direct connection requests
   socket.on('initiate-connection', ({ senderId, senderName }) => {
     console.log(`[WEBRTC] *** RECEIVED CONNECTION REQUEST *** from ${senderName || senderId} (${senderId})`);
@@ -457,15 +462,10 @@ export const initializeWebRTC = (
     }, 500);
   });
   
-  // Handle when a new user joins - DON'T automatically create connections here
-  // Instead, wait for explicit connection initiation
-  socket.on('user-joined', ({ userId, userName: remoteUserName }) => {
-    console.log(`User joined: ${remoteUserName} (${userId}) - waiting for connection initiation`);
-    
-    // Just log that the user joined, but don't create connections automatically
-    // Connections will be created when we receive 'initiate-connection' events
-  });
-  
+  // NOTE: user-joined is handled exclusively by VideoRoom, which initiates
+  // connections via 'initiate-connection'. We do NOT register a handler here
+  // to avoid clobbering VideoRoom's handler with socket.off('user-joined').
+
   // Handle when we receive an offer
   socket.on('webrtc-offer', async ({ offer, senderId, senderName }) => {
     console.log(`Received offer from ${senderName} (${senderId})`);
@@ -557,9 +557,6 @@ export const initializeWebRTC = (
           roomId: videoContext.roomId,
           senderName: videoContext.userName
         });
-
-        // Mark initial negotiation as done so onnegotiationneeded can fire for renegotiation
-        initialNegotiationDone.add(senderId);
       } catch (e) {
         console.error(`Error during offer/answer process with ${senderName}:`, e);
         
@@ -588,8 +585,6 @@ export const initializeWebRTC = (
               roomId: videoContext.roomId,
               senderName: videoContext.userName
             });
-
-            initialNegotiationDone.add(senderId);
           } catch (retryError) {
             console.error(`Error during retry with ${senderName}:`, retryError);
           }
@@ -650,24 +645,25 @@ export const initializeWebRTC = (
     }
   });
   
-  // Handle when a user leaves
-  socket.on('user-left', ({ userId, userName: remoteUserName }) => {
+  // Handle when a user leaves — store a reference so we can remove only this
+  // handler later without clobbering VideoRoom's 'user-left' handler.
+  _webrtcUserLeftHandler = ({ userId, userName: remoteUserName }: { userId: string; userName: string }) => {
     console.log(`User left: ${remoteUserName} (${userId})`);
-    
+
     // Clean up connection for the user who left
     const connection = videoContext.peerConnections.get(userId);
-    
+
     if (connection) {
       console.log(`Closing peer connection for ${remoteUserName}`);
-      
+
       // Close the RTCPeerConnection
       if (connection.connection) {
         connection.connection.close();
       }
-      
+
       // Remove the connection from our map
       videoContext.peerConnections.delete(userId);
-      
+
       // Dispatch event to remove the stream from UI
       if (connection.stream) {
         activeStreams.delete(connection.stream);
@@ -678,7 +674,8 @@ export const initializeWebRTC = (
         );
       }
     }
-  });
+  };
+  socket.on('user-left', _webrtcUserLeftHandler);
   
   // Handle connection renegotiation
   socket.on('webrtc-renegotiate', async ({ senderId, senderName }) => {
@@ -829,17 +826,12 @@ const createPeerConnection = (userId: string, userName: string) => {
       console.log(`Signaling state for ${userName}: ${peerConnection.signalingState}`);
     };
     
-    // Handle negotiation needed events — only allow renegotiation after the
-    // initial offer/answer exchange is complete.  Firing createOffer during
-    // the first exchange races with setRemoteDescription and causes a
-    // cascade of peer-connection recreation that can black-out local video.
+    // All negotiation is driven explicitly via 'initiate-connection' and
+    // 'webrtc-renegotiate' socket events. Letting onnegotiationneeded call
+    // createOffer causes duplicate renegotiations (with ICE restarts) that
+    // black-out the local video stream.
     peerConnection.onnegotiationneeded = () => {
-      console.log(`Negotiation needed for ${userName}`);
-      if (initialNegotiationDone.has(userId) && videoContext.socket && videoContext.localStream) {
-        createOffer(userId);
-      } else {
-        console.log(`[WEBRTC] Suppressing onnegotiationneeded for ${userName} (initial negotiation not yet complete)`);
-      }
+      console.log(`[WEBRTC] onnegotiationneeded fired for ${userName} — ignored (negotiation is event-driven)`);
     };
     
     // Handle incoming tracks
@@ -989,11 +981,10 @@ const createOffer = async (userId: string) => {
       });
     }
     
-    // Create the offer with ice restart to overcome potential networking issues
+    // Create the offer
     const offer = await peerConnection.connection.createOffer({
-      offerToReceiveAudio: true, 
+      offerToReceiveAudio: true,
       offerToReceiveVideo: true,
-      iceRestart: true  // Enable ICE restart to overcome potential networking issues
     });
     
     // Set local description - must happen before sending offer
@@ -1029,9 +1020,6 @@ const createOffer = async (userId: string) => {
     
     // Send the offer to the peer
     videoContext.socket.emit('webrtc-offer', offerData);
-
-    // Mark initial negotiation as done so onnegotiationneeded can fire for renegotiation
-    initialNegotiationDone.add(userId);
 
     // We don't immediately resend offers; we wait for a response or timeout
     const retryDelay = 8000; // 8 seconds
@@ -1104,9 +1092,8 @@ const createOffer = async (userId: string) => {
 const cleanupSingleConnection = (userId: string) => {
   console.log(`Cleaning up connection for user ${userId}`);
 
-  // Clean up buffered ICE candidates and negotiation tracking
+  // Clean up buffered ICE candidates
   pendingIceCandidates.delete(userId);
-  initialNegotiationDone.delete(userId);
 
   const connection = videoContext.peerConnections.get(userId);
   if (connection) {
@@ -1134,9 +1121,8 @@ const cleanupSingleConnection = (userId: string) => {
 export const cleanupConnections = () => {
   console.log('Cleaning up all WebRTC connections');
 
-  // Clear all buffered ICE candidates and negotiation tracking
+  // Clear all buffered ICE candidates
   pendingIceCandidates.clear();
-  initialNegotiationDone.clear();
 
   // Close all peer connections
   videoContext.peerConnections.forEach((connection, userId) => {
